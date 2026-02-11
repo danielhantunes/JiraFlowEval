@@ -1,0 +1,6 @@
+pandas
+openpyxl
+typer
+openai
+python-dotenv
+pyyaml
