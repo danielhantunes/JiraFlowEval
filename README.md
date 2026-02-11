@@ -5,7 +5,6 @@ Evaluates multiple Python Data Engineering challenge repositories: clone, run pi
 ## Setup
 
 ```bash
-cd repo_evaluator
 pip install -r requirements.txt
 ```
 
@@ -63,7 +62,7 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 ## Project layout
 
 ```
-repo_evaluator/
+JiraFlowEval/
 ├── evaluator/
 │   ├── cli.py
 │   ├── spreadsheet.py

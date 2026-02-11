@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def get_project_root() -> Path:
-    """Root of repo_evaluator (parent of evaluator package)."""
+    """Project root (parent of evaluator package)."""
     root = os.environ.get("REPO_EVALUATOR_ROOT")
     if root:
         return Path(root).resolve()
