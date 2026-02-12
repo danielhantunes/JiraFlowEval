@@ -2,7 +2,35 @@
 
 Evaluates multiple Python Data Engineering challenge repositories: clone, run pipeline, run deterministic checks, evaluate with an LLM, and produce a scored Excel report.
 
-## Setup
+## Project Status
+
+🚧 This project is under active development and continuously evolving.
+
+## Reproducible setup with Docker (recommended)
+
+Use Docker for the same Python version and dependencies on any machine:
+
+```bash
+# 1. Copy env template and set your OpenAI API key
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY=sk-...
+
+# 2. Build the image
+docker compose build
+
+# 3. Put your Excel in input/ and run
+docker compose run --rm evaluator
+```
+
+Output appears in `output/repos_evaluated.xlsx`. To use a different input file or output name:
+
+```bash
+docker compose run --rm evaluator evaluate --file input/my_repos.xlsx --output my_results.xlsx
+```
+
+Cloned repos are stored in `temp_repos/` (mounted from the host).
+
+## Local setup (without Docker)
 
 ```bash
 pip install -r requirements.txt
@@ -19,6 +47,12 @@ export OPENAI_API_KEY=sk-...
 
 Place your Excel file (e.g. `repos.xlsx`) in the **input/** folder, then run:
 
+**With Docker:**
+```bash
+docker compose run --rm evaluator
+```
+
+**Without Docker:**
 ```bash
 python -m evaluator.cli evaluate --file input/repos.xlsx
 ```
@@ -78,6 +112,10 @@ JiraFlowEval/
 ├── input/          # place your .xlsx here (see repos_example.xlsx)
 ├── temp_repos/
 ├── output/
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
+├── .env.example     # copy to .env and set OPENAI_API_KEY
 ├── requirements.txt
 └── README.md
 ```

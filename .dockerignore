@@ -1,0 +1,28 @@
+# Avoid copying large or host-specific data into the image
+temp_repos/
+output/
+.git/
+.gitignore
+*.pyc
+__pycache__/
+.venv/
+venv/
+env/
+
+# Env and secrets: pass at runtime
+.env
+.env.*
+!.env.example
+
+# Optional: keep input out of image so it's always mounted
+# input/*.xlsx
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Stale folder from earlier layout
+repo_evaluator/

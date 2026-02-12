@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Generated and runtime
+output/*.xlsx
+temp_repos/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

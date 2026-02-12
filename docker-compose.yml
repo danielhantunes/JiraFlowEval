@@ -1,0 +1,19 @@
+# Run the evaluator in a reproducible container.
+# Usage:
+#   docker compose run --rm evaluator evaluate --file input/repos.xlsx
+# Or with .env and default command:
+#   docker compose run --rm evaluator
+services:
+  evaluator:
+    build: .
+    image: jiraflow-evaluator:latest
+    env_file:
+      - .env
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./temp_repos:/app/temp_repos
+    # Override to run evaluation (example):
+    command: ["evaluate", "--file", "input/repos.xlsx", "--output", "repos_evaluated.xlsx"]
+    stdin_open: true
+    tty: true
