@@ -23,9 +23,47 @@ SUMMARY_KEY = "summary"
 
 SYSTEM_PROMPT = """You are a senior Data Engineering reviewer.
 Evaluate this Python repository implementing a Medallion Architecture pipeline.
-Use only the provided evidence."""
+Use only the provided evidence.
+
+Score against these expected output rules (Gold layer and reports):
+
+## Expected Output – Gold Layer
+
+### Final table – SLA per ticket
+The final table must contain at least these fields:
+- Ticket ID
+- Ticket type
+- Responsible analyst
+- Priority
+- Open date
+- Resolution date
+- Resolution time in business hours
+- Expected SLA (in hours)
+- Indicator of SLA met or not met
+
+Only tickets with status **Done** or **Resolved** must be in this table.
+
+---
+
+## Required simple reports
+From the Gold layer, the following aggregated reports must be produced:
+
+### Average SLA by analyst
+- Analyst
+- Number of tickets
+- Average SLA (in hours)
+
+### Average SLA by ticket type
+- Ticket type
+- Number of tickets
+- Average SLA (in hours)
+
+Reports may be delivered in `.CSV` or `.XLSX` format.
+
+Use these rules to score medallion_architecture, sla_logic, and code_quality (0–5)."""
 
 USER_PROMPT_TEMPLATE = """Use only the provided evidence below.
+Score according to the Gold layer and report rules given in the system prompt.
 
 Return ONLY valid JSON with no other text:
 {
@@ -42,6 +80,20 @@ Evidence:
 {evidence}
 """
 
+README_RUN_COMMAND_PROMPT = """From the README below, extract the exact command to run the data pipeline.
+
+Look for sections like "How to Run", "Quick start", "Usage", or similar. The command is usually something like:
+- python main.py
+- python -m src.main
+- python run_pipeline.py
+
+Reply with ONLY the command line, nothing else. Use a single line. If the README mentions Docker, you may reply with the command that would be run inside the container (e.g. python -m src.main). If not found or unclear, reply exactly: UNKNOWN
+
+README:
+
+{readme}
+"""
+
 
 def _extract_json(text: str) -> Optional[dict]:
     """Try to parse JSON from model output (allow markdown code block)."""
@@ -53,6 +105,40 @@ def _extract_json(text: str) -> Optional[dict]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
+        return None
+
+
+def get_run_command_from_readme(readme: str) -> Optional[str]:
+    """
+    Ask the LLM to extract the pipeline run command from the README.
+    Returns e.g. "python -m src.main" or None if unclear / API error.
+    """
+    if not readme or not readme.strip():
+        return None
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        log.warning("OPENAI_API_KEY not set, cannot get run command from README")
+        return None
+    # Limit size to avoid token overflow
+    readme_trimmed = readme[:8000].strip()
+    prompt = README_RUN_COMMAND_PROMPT.format(readme=readme_trimmed)
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=100,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if not content or content.upper() == "UNKNOWN":
+            return None
+        # Basic sanity: should look like a python command
+        if "python" not in content.lower():
+            return None
+        return content
+    except Exception as e:
+        log.warning("get_run_command_from_readme failed: %s", e)
         return None
 
 

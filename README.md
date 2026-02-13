@@ -64,6 +64,12 @@ Optional:
 
 - `--output` / `-o`: output filename (default: `repos_evaluated.xlsx`)
 
+**Run each repo’s pipeline in Docker:** set `RUN_IN_DOCKER=1` (in `.env` or the environment). The evaluator will run each project inside a `python:3.12-slim` container (mount repo, `pip install -r requirements.txt`, then run the entrypoint). Requires Docker on the host.
+
+**Use README to get run command:** set `USE_README_RUN_COMMAND=1`. The LLM will read each repo’s README and extract the pipeline run command (e.g. `python -m src.main`). That command is always executed **inside Docker** for safe, isolated runs (no need to set `RUN_IN_DOCKER` separately in this case).
+
+**Candidate repos and Azure:** Some pipelines use an **Azure Service Principal** (e.g. a third-party account in **read-only** mode) to read from Blob Storage. When you run repos in Docker (`RUN_IN_DOCKER=1` or `USE_README_RUN_COMMAND=1`), the evaluator **passes through** Azure-related env vars from your host (e.g. `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`) into the container so the pipeline can authenticate. Set these in your `.env` or environment so they are available when the evaluator runs.
+
 ## Input
 
 - Put your spreadsheet in the **input/** folder (e.g. `input/repos.xlsx`).
@@ -89,6 +95,9 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 ## Environment
 
 - **OPENAI_API_KEY** – required for LLM evaluation
+- **USE_README_RUN_COMMAND** – if set to `1`/`true`/`yes`, LLM reads each repo’s README to get the run command; that command is always run in Docker for safety
+- **RUN_IN_DOCKER** – if set to `1`/`true`/`yes`, each repo’s pipeline runs inside a Docker container (`python:3.12-slim`)
+- **Azure (when running in Docker):** if candidate repos use Azure Service Principal (read-only), set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` (and optionally `AZURE_SUBSCRIPTION_ID`) in `.env` or the environment; they are passed into the container
 - **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`)
 - **OUTPUT_DIR** – where to write results (default: `output/`)
 - **REPO_EVALUATOR_ROOT** – project root (default: auto)
