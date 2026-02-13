@@ -54,10 +54,11 @@ docker compose run --rm evaluator
 
 **Without Docker:**
 ```bash
-python -m evaluator.cli evaluate --file input/repos.xlsx
+python main.py
 ```
+Or with a specific file: `python main.py evaluate --file input/repos.xlsx`
 
-You can also pass any path: `--file path/to/your.xlsx`. Output is written to `output/repos_evaluated.xlsx` (the input file is never overwritten).
+You can also run the CLI module directly: `python -m evaluator.cli evaluate --file input/repos.xlsx`. Pass any path with `--file path/to/your.xlsx`. Output is written to `output/repos_evaluated.xlsx` (the input file is never overwritten).
 
 Optional:
 
@@ -112,10 +113,11 @@ JiraFlowEval/
 ├── input/          # place your .xlsx here (see repos_example.xlsx)
 ├── temp_repos/
 ├── output/
+├── main.py           # entry point: python main.py [evaluate --file input/repos.xlsx]
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
-├── .env.example     # copy to .env and set OPENAI_API_KEY
+├── .env.example      # copy to .env and set OPENAI_API_KEY
 ├── requirements.txt
 └── README.md
 ```

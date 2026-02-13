@@ -11,12 +11,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY main.py .
 COPY evaluator/ evaluator/
 COPY config/ config/
 
 ENV REPO_EVALUATOR_ROOT=/app
 ENV PYTHONUNBUFFERED=1
 
-# Default: show help. Override with docker run ... evaluate --file input/repos.xlsx
-ENTRYPOINT ["python", "-m", "evaluator.cli"]
-CMD ["--help"]
+# Default: run evaluation (input/repos.xlsx -> output/repos_evaluated.xlsx)
+ENTRYPOINT ["python", "main.py"]
+CMD ["evaluate", "--file", "input/repos.xlsx", "--output", "repos_evaluated.xlsx"]

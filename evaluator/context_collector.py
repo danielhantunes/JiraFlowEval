@@ -68,12 +68,14 @@ def collect_context(repo_path: Path, execution_result: dict) -> dict[str, Any]:
 
     context["project_tree"] = _tree(repo_path, max_depth=TREE_DEPTH)
 
-    sla = repo_path / "sla_calculation.py"
-    if sla.exists():
-        context["sla_calculation"] = _read_limited(sla)
+    for sla_rel in ["sla_calculation.py", "src/sla/sla_calculation.py"]:
+        sla = repo_path / sla_rel
+        if sla.exists():
+            context["sla_calculation"] = _read_limited(sla)
+            break
 
-    for name in ["main.py", "run_pipeline.py"]:
-        p = repo_path / name
+    for rel in ["main.py", "run_pipeline.py", "src/main.py", "src/run_pipeline.py"]:
+        p = repo_path / rel
         if p.exists():
             context["main_pipeline"] = _read_limited(p)
             break

@@ -12,15 +12,23 @@ log = get_logger(__name__)
 PIPELINE_TIMEOUT = 180
 MAX_FILE_SIZE = 4000
 
-ENTRYPOINTS = ["main.py", "run_pipeline.py"]
+# Root entry points (run as script: python main.py)
+ROOT_ENTRYPOINTS = ["main.py", "run_pipeline.py"]
+# Module entry points (run as module: python -m src.main)
+MODULE_ENTRYPOINTS = ["src/main.py", "src/run_pipeline.py"]
 GOLD_DIR = Path("data/gold")
 
 
-def _find_entrypoint(repo_path: Path) -> Optional[Path]:
-    for name in ENTRYPOINTS:
+def _find_entrypoint(repo_path: Path) -> Optional[tuple[Path, bool]]:
+    """Return (entry_path, is_module). is_module True => run with python -m <module>."""
+    for name in ROOT_ENTRYPOINTS:
         p = repo_path / name
         if p.is_file():
-            return p
+            return (p, False)
+    for rel in MODULE_ENTRYPOINTS:
+        p = repo_path / rel
+        if p.is_file():
+            return (p, True)
     return None
 
 
@@ -94,8 +102,8 @@ def _gold_has_csv(repo_path: Path) -> bool:
     gold = repo_path / GOLD_DIR
     if not gold.is_dir():
         return False
-    for f in gold.iterdir():
-        if f.suffix.lower() == ".csv":
+    for f in gold.rglob("*.csv"):
+        if f.is_file():
             return True
     return False
 
@@ -116,10 +124,12 @@ def run_pipeline(repo_path: Path) -> dict:
         "return_code": None,
     }
 
-    entry = _find_entrypoint(repo_path)
-    if not entry:
-        result["error"] = "No main.py or run_pipeline.py found"
+    entry_result = _find_entrypoint(repo_path)
+    if not entry_result:
+        result["error"] = "No main.py, run_pipeline.py, or src/main.py found"
         return result
+
+    entry_path, is_module = entry_result
 
     ok, err = _create_venv_and_install(repo_path)
     if not ok:
@@ -131,9 +141,17 @@ def run_pipeline(repo_path: Path) -> dict:
         result["error"] = "venv python not found"
         return result
 
+    if is_module:
+        # e.g. src/main.py -> python -m src.main
+        rel = entry_path.relative_to(repo_path).with_suffix("")
+        module_name = str(rel).replace("\\", ".")
+        run_cmd = [str(py), "-m", module_name]
+    else:
+        run_cmd = [str(py), entry_path.name]
+
     try:
         proc = subprocess.run(
-            [str(py), str(entry.name)],
+            run_cmd,
             cwd=repo_path,
             capture_output=True,
             text=True,
