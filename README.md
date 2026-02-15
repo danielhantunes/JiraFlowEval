@@ -143,7 +143,7 @@ These choices keep the project production-like, reproducible, and easy to run wi
 | **Retries for clone and LLM** | Git clone and OpenAI API calls are retried a few times with a short delay. Transient network or rate-limit errors are less likely to fail the whole run. |
 | **Config-driven scoring** | Weights and max score live in `config/scoring.yaml`, not in code. You can tune scoring without changing the evaluator. |
 | **Fully automated evaluation** | One command processes every repo in the input file: clone → run pipeline in Docker → LLM → write row. No manual steps per repository. |
-| **Workflow on demand** | The workflow runs only when you trigger it (Actions → Run workflow), not on push. The evaluate job runs when the `OPENAI_API_KEY` secret is set. That keeps the repo usable for forks that don’t have a key, while allowing fully automated runs where the secret is configured. |
+| **Workflow on demand** | The workflow runs only when you trigger it (Actions → Run workflow), not on push. The evaluate job runs every time you trigger the workflow; set the `OPENAI_API_KEY` secret (and any Azure secrets/variables) for real LLM scoring and pipeline auth. |
 
 ---
 
@@ -178,7 +178,7 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 **Optional** (in `.env` or shell)
 
 - **USE_README_RUN_COMMAND** – set to `1` (or `true`/`yes`) to have the LLM read each repo's README and use the run command it finds (e.g. `python -m src.main`) instead of auto-detecting `main.py` / `run_pipeline.py`.
-- **Azure / input file** – if candidate repos need Azure Blob or a specific input file, set the env vars listed below; they are passed into the pipeline container. For **GitHub Actions**, use [Repository secrets and variables](#github-actions-secrets-and-variables).
+- **Azure / input file** – if candidate repos need Azure Blob or a specific input file, set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_ACCOUNT_URL`, `AZURE_CONTAINER_NAME`, `AZURE_BLOB_NAME`, and optionally `RAW_INPUT_FILENAME` in `.env`; they are passed into the pipeline container. For **GitHub Actions**, see [secrets and variables](#github-actions-secrets-and-variables).
 - **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`).
 - **OUTPUT_DIR** – where to write results (default: `output/`).
 - **REPO_EVALUATOR_ROOT** – project root (default: auto).
@@ -256,7 +256,7 @@ JiraFlowEval/
 For each repo the tool:
 
 1. Clones into `temp_repos/<repo_name>` (or pulls if present).
-2. Runs the pipeline inside a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs `main.py` or `run_pipeline.py` (timeout 180s).
+2. Runs the pipeline inside a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs the discovered entrypoint (e.g. `main.py`, `run_pipeline.py`, or `python -m src.main`; timeout 180s).
 3. Checks that `data/gold` exists and contains at least one CSV.
 4. Collects README, project tree (depth 3), `sla_calculation.py`, main pipeline file, and execution summary (file content capped at 4000 chars).
 5. Sends context to the LLM for scores and summary.
