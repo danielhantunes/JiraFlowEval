@@ -1,5 +1,5 @@
-# Build, test, and run the evaluator. Runs only on demand (Actions → Run workflow).
-name: Build and run (Docker)
+# Build, test, and evaluate. Runs only on demand (Actions → Run workflow).
+name: Build, test & evaluate
 
 on:
   workflow_dispatch:

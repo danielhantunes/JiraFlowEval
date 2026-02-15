@@ -4,7 +4,7 @@
 
 🚧 *Under active development.*
 
-The workflow runs **on demand** only: in the GitHub repo go to **Actions → Build and run (Docker) → Run workflow**. It builds the Docker image and runs all tests inside the container (coverage ≥55%). If the **OPENAI_API_KEY** secret is set, the same run can include a full evaluation on all repos in the input file (see [Step 7](#step-7-optional-enable-automated-evaluation-in-ci) and [Design decisions](#design-decisions)).
+The workflow runs **on demand** only: in the GitHub repo go to **Actions → Build, test & evaluate → Run workflow**. It builds the Docker image and runs all tests inside the container (coverage ≥55%). If the **OPENAI_API_KEY** secret is set, the same run can include a full evaluation on all repos in the input file (see [Step 7](#step-7-optional-enable-automated-evaluation-in-ci) and [Design decisions](#design-decisions)).
 
 ---
 
@@ -103,8 +103,8 @@ See [Testing](#testing) for host-based pytest as well.
 If you use GitHub Actions and want to run a full evaluation on demand:
 
 1. In your GitHub repo: **Settings → Secrets and variables → Actions** → add a repository secret **`OPENAI_API_KEY`** with your API key.
-2. Go to **Actions → Build and run (Docker) → Run workflow** and click **Run workflow** (choose the branch that has your `input/repos.xlsx` if needed).
-3. The workflow will build, test, then run evaluation on all repos in `input/repos.xlsx` (or a default list if that file is missing). Results are uploaded as an artifact.
+2. Go to **Actions → Build, test & evaluate → Run workflow** and click **Run workflow** (choose the branch that has your `input/repos.xlsx` if needed).
+3. The workflow will build, test, then run evaluation on all repos in `input/repos.xlsx` (or a default list if that file is missing). Download the result Excel from the run page: **Artifacts → evaluation-results**.
 
 The workflow runs only when you trigger it; it does not run on push.
 
@@ -225,6 +225,7 @@ JiraFlowEval/
 ├── main.py           # entry point: python main.py [evaluate --file input/repos.xlsx]
 ├── Dockerfile
 ├── docker-compose.yml
+├── .coveragerc       # coverage config for pytest-cov
 ├── .dockerignore
 ├── .env.example      # copy to .env and set OPENAI_API_KEY
 ├── requirements.txt
@@ -243,4 +244,4 @@ For each repo the tool:
 6. Computes weighted final score from `config/scoring.yaml`.
 7. Appends all result columns to the row and writes the new spreadsheet.
 
-Errors for a single repo are logged; evaluation continues for the rest.
+If **clone fails** (e.g. broken link), the row is still written with zero scores and a **summary** explaining the failure; pipeline and LLM are skipped for that repo. If the **pipeline fails**, the summary includes the error so the score is justified. Errors for a single repo are logged; evaluation continues for the rest.
