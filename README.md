@@ -102,7 +102,7 @@ See [Testing](#testing) for host-based pytest as well.
 
 If you use GitHub Actions and want to run a full evaluation on demand:
 
-1. In your GitHub repo: **Settings → Secrets and variables → Actions** → add a repository secret **`OPENAI_API_KEY`** with your API key.
+1. In your GitHub repo: **Settings → Secrets and variables → Actions** → add the **secrets** and **variables** you need (see [GitHub Actions: secrets and variables](#github-actions-secrets-and-variables)). At minimum, add repository secret **`OPENAI_API_KEY`** for LLM scoring. If candidate repos use Azure Blob or a specific input file, add the Azure secrets and variables listed there.
 2. Go to **Actions → Build, test & evaluate → Run workflow** and click **Run workflow** (choose the branch that has your `input/repos.xlsx` if needed).
 3. The workflow will build, test, then run evaluation on all repos in `input/repos.xlsx` (or a default list if that file is missing). Download the result Excel from the run page: **Artifacts → evaluation-results**.
 
@@ -160,7 +160,7 @@ All original columns plus:
 
 - **pipeline_runs** – pipeline executed successfully (True/False)
 - **gold_generated** – `data/gold` exists and contains at least one CSV
-- **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality** – LLM scores 0–5
+- **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality**, **cloud_ingestion** – LLM scores 0–5 (cloud_ingestion: Azure Service Principal / cloud ingestion = 5, local JSON only = 1–2)
 - **final_score** – weighted score (configurable max, default 10)
 - **summary** – short technical summary from LLM; when clone or pipeline fails, explains the error so the score is justified (e.g. "Clone failed...", "Pipeline error: ...")
 
@@ -178,11 +178,30 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 **Optional** (in `.env` or shell)
 
 - **USE_README_RUN_COMMAND** – set to `1` (or `true`/`yes`) to have the LLM read each repo's README and use the run command it finds (e.g. `python -m src.main`) instead of auto-detecting `main.py` / `run_pipeline.py`.
-- **Azure** – if candidate repos need Azure Blob (e.g. Service Principal), set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` (and optionally `AZURE_SUBSCRIPTION_ID`); they are passed into the pipeline container.
+- **Azure / input file** – if candidate repos need Azure Blob or a specific input file, set the env vars listed below; they are passed into the pipeline container. For **GitHub Actions**, use [Repository secrets and variables](#github-actions-secrets-and-variables).
 - **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`).
 - **OUTPUT_DIR** – where to write results (default: `output/`).
 - **REPO_EVALUATOR_ROOT** – project root (default: auto).
 - **SCORING_CONFIG_PATH** – path to `scoring.yaml` (default: `config/scoring.yaml`).
+
+### GitHub Actions: secrets and variables
+
+When you run the workflow from **Actions → Build, test & evaluate → Run workflow**, the **evaluate** job builds a `.env` from repository **Secrets** and **Variables**. Add them under **Settings → Secrets and variables → Actions**.
+
+| Type | Name | Purpose |
+|------|------|---------|
+| **Secret** | `OPENAI_API_KEY` | OpenAI API key for LLM scoring. |
+| **Secret** | `AZURE_TENANT_ID` | Azure AD tenant (Service Principal). |
+| **Secret** | `AZURE_CLIENT_ID` | Azure app (client) ID. |
+| **Secret** | `AZURE_CLIENT_SECRET` | Azure client secret. |
+| **Variable** | `AZURE_ACCOUNT_URL` | Storage account URL (e.g. `https://<name>.blob.core.windows.net`). |
+| **Variable** | `AZURE_CONTAINER_NAME` | Blob container name. |
+| **Variable** | `AZURE_BLOB_NAME` | Blob name (if used by the candidate repo). |
+| **Variable** | `RAW_INPUT_FILENAME` | Input file path/name for repos that read a local file. |
+
+**Best practice:** use **Secrets** for credentials (API keys, client secrets, tenant/client IDs) so they are masked in logs; use **Variables** for non-sensitive config (URLs, container/blob names, paths). The workflow uses `secrets.*` for the four secrets above and `vars.*` for the four variables.
+
+If a secret or variable is not set, the corresponding line is still written to `.env` with an empty value; the evaluator and pipeline containers receive whatever you configured.
 
 ## Testing
 

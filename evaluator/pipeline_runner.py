@@ -13,8 +13,8 @@ PIPELINE_TIMEOUT = 180
 MAX_FILE_SIZE = 4000
 DOCKER_IMAGE = "python:3.12-slim"
 
-# Env vars to pass into the container when running in Docker (e.g. Azure Service Principal for read-only access).
-# Set these on the host (or in .env) so the pipeline can authenticate to Azure Blob etc.
+# Env vars to pass into the pipeline container (Azure Service Principal, blob config, optional input file).
+# Set these on the host (or in .env / GitHub Actions secrets or variables).
 AZURE_ENV_VARS = (
     "AZURE_CLIENT_ID",
     "AZURE_TENANT_ID",
@@ -22,6 +22,11 @@ AZURE_ENV_VARS = (
     "AZURE_SUBSCRIPTION_ID",
     "AZURE_CLIENT_CERTIFICATE_PATH",
     "AZURE_USE_IDENTITY",
+    "AZURE_ACCOUNT_URL",
+    "AZURE_CONTAINER_NAME",
+    "AZURE_BLOB_NAME",
+    "AZURE_BLOB_PREFIX",
+    "RAW_INPUT_FILENAME",
 )
 
 # Root entry points (run as script: python main.py)

@@ -18,6 +18,7 @@ RESULT_COLUMNS = [
     "pipeline_organization",
     "readme_clarity",
     "code_quality",
+    "cloud_ingestion",
     "final_score",
     "summary",
 ]

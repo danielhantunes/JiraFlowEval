@@ -76,6 +76,7 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
         "pipeline_organization": 0,
         "readme_clarity": 0,
         "code_quality": 0,
+        "cloud_ingestion": 0,
         "summary": "",
     }
 
@@ -106,7 +107,7 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
 
     context = collect_context(repo_path, run_result)
     llm_result = evaluate_with_llm(context)
-    for k in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality"]:
+    for k in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "cloud_ingestion"]:
         metrics[k] = llm_result.get(k, 0)
     metrics["summary"] = llm_result.get("summary", "")
 

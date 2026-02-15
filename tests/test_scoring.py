@@ -72,6 +72,7 @@ def test_compute_final_score_mixed():
         "pipeline_organization": 2,
         "readme_clarity": 5,
         "code_quality": 3,
+        "cloud_ingestion": 3,
     }
     score = compute_final_score(metrics, DEFAULT_WEIGHTS, max_score=10.0)
     assert 0 < score < 10

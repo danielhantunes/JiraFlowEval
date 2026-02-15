@@ -50,6 +50,7 @@ def test_evaluate_integration_mocked(
             "pipeline_organization": 3,
             "readme_clarity": 4,
             "code_quality": 3,
+            "cloud_ingestion": 3,
             "summary": "Test summary.",
         }
 

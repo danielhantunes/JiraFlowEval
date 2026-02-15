@@ -22,6 +22,7 @@ LLM_KEYS = [
     "pipeline_organization",
     "readme_clarity",
     "code_quality",
+    "cloud_ingestion",
 ]
 SUMMARY_KEY = "summary"
 
@@ -64,7 +65,17 @@ From the Gold layer, the following aggregated reports must be produced:
 
 Reports may be delivered in `.CSV` or `.XLSX` format.
 
-Use these rules to score medallion_architecture, sla_logic, and code_quality (0–5)."""
+Use these rules to score medallion_architecture, sla_logic, and code_quality (0–5).
+
+---
+
+## Cloud ingestion (Azure Service Principal vs local file only)
+- **5**: Ingestion supports (or documents) Azure Blob / cloud storage via Service Principal (e.g. AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_ACCOUNT_URL). Pipeline can pull raw data from cloud.
+- **3–4**: Partial cloud support (e.g. config present but optional, or similar cloud auth).
+- **1–2**: Local file only: ingestion expects only a local JSON (or file path); no Azure/cloud integration. Acceptable for local/dev but not production-style cloud ingestion.
+- **0**: No clear ingestion path or no evidence.
+
+Score cloud_ingestion (0–5) based on the evidence (README, ingestion code, config)."""
 
 USER_PROMPT_TEMPLATE = """Use only the provided evidence below.
 Score according to the Gold layer and report rules given in the system prompt.
@@ -76,6 +87,7 @@ Return ONLY valid JSON with no other text:
   "pipeline_organization": 0-5,
   "readme_clarity": 0-5,
   "code_quality": 0-5,
+  "cloud_ingestion": 0-5,
   "summary": "short technical summary"
 }
 

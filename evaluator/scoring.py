@@ -15,6 +15,7 @@ DEFAULT_WEIGHTS = {
     "pipeline_organization": 2,
     "readme_clarity": 2,
     "code_quality": 2,
+    "cloud_ingestion": 2,
 }
 DEFAULT_MAX_SCORE = 10
 

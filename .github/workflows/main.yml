@@ -40,10 +40,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Secrets (credentials) + Variables (config) → .env
       - name: Create .env
         run: |
           cp .env.example .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+          echo "RAW_INPUT_FILENAME=${{ vars.RAW_INPUT_FILENAME }}" >> .env
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> .env
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> .env
+          echo "AZURE_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> .env
+          echo "AZURE_ACCOUNT_URL=${{ vars.AZURE_ACCOUNT_URL }}" >> .env
+          echo "AZURE_CONTAINER_NAME=${{ vars.AZURE_CONTAINER_NAME }}" >> .env
+          echo "AZURE_BLOB_NAME=${{ vars.AZURE_BLOB_NAME }}" >> .env
 
       - name: Ensure input and create default repos list if missing
         run: |
