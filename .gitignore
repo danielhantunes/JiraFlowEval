@@ -13,6 +13,9 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
 
 # IDE and OS
 .idea/

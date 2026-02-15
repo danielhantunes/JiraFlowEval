@@ -1,0 +1,11 @@
+# Coverage for the evaluator package only (not tests or entry point).
+[run]
+source = evaluator
+omit = tests/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+show_missing = True

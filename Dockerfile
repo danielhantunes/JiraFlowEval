@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY evaluator/ evaluator/
 COPY config/ config/
+COPY tests/ tests/
+COPY .coveragerc .coveragerc
 
 ENV REPO_EVALUATOR_ROOT=/app
 ENV PYTHONUNBUFFERED=1

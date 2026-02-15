@@ -4,38 +4,109 @@
 
 🚧 *Under active development.*
 
-On every push to **main**, GitHub Actions runs `docker compose build` and a container smoke test (see `.github/workflows/main.yml`).
+The workflow runs **on demand** only: in the GitHub repo go to **Actions → Build and run (Docker) → Run workflow**. It builds the Docker image and runs all tests inside the container (coverage ≥55%). If the **OPENAI_API_KEY** secret is set, the same run can include a full evaluation on all repos in the input file (see [Step 7](#step-7-optional-enable-automated-evaluation-in-ci) and [Design decisions](#design-decisions)).
 
 ---
 
 ## Prerequisites
 
-- **Docker** – required (each candidate repo's pipeline runs in a container; no local fallback).
-- **Git** – used to clone repos.
-- **OpenAI API key** – required for LLM scoring (set in `.env`).
+Before you start, ensure you have:
+
+| Requirement | Purpose |
+|-------------|---------|
+| **Docker** | Runs the evaluator and every candidate repo's pipeline in containers (mandatory; no local fallback). |
+| **Git** | Used to clone candidate repositories. |
+| **OpenAI API key** | Required for LLM scoring (stored in `.env`). |
 
 ---
 
-## Quick start (replicate in 4 steps)
+## Implement this project step by step
 
-1. **Clone this repo** and go to its directory.
+Follow these steps to run the evaluator locally or in your own fork.
 
-2. **Create `.env`** from the template and set your OpenAI API key:
-   ```bash
-   cp .env.example .env
-   ```
-   Then edit `.env` and set `OPENAI_API_KEY=sk-your-key`.
-   *(Windows: `copy .env.example .env` then edit in Notepad or your editor.)*
+### Step 1: Clone the repository
 
-3. **Add your input Excel** to the `input/` folder with a **`repo_url`** column. Copy `input/repos_example.xlsx` to `input/repos.xlsx` and add your repo URLs (or use another filename and pass `--file input/yourfile.xlsx` in step 4).
+```bash
+git clone <this-repo-url>
+cd JiraFlowEval
+```
 
-4. **Build and run:**
-   ```bash
-   docker compose build
-   docker compose run --rm evaluator
-   ```
+### Step 2: Create and configure `.env`
 
-Results are written to **`output/repos_evaluated.xlsx`**. Cloned repos are in **`temp_repos/`**.
+Copy the template and set your OpenAI API key (required for LLM scoring):
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` and set:
+
+- **`OPENAI_API_KEY`** – your OpenAI API key (e.g. `sk-...`).
+
+*(On Windows: `copy .env.example .env` then edit in Notepad or your editor.)*
+
+Optional: set `USE_README_RUN_COMMAND=1` if you want the LLM to infer the run command from each repo's README. If candidate repos need Azure, add the Azure env vars listed in [Environment](#environment).
+
+### Step 3: Prepare the input spreadsheet
+
+1. Create the `input/` folder if it does not exist.
+2. Add an Excel file (e.g. `input/repos.xlsx`) with at least one column: **`repo_url`**.
+3. Put one repository URL per row (e.g. `https://github.com/org/repo-name`).
+4. You can keep other columns (name, email, etc.); they are preserved in the output.
+
+If the repo includes `input/repos_example.xlsx`, copy it to `input/repos.xlsx` and replace the example URLs with your own.
+
+### Step 4: Build the Docker image
+
+From the project root:
+
+```bash
+docker compose build
+```
+
+This builds the evaluator image (Python 3.12, dependencies from `requirements.txt`).
+
+### Step 5: Run the evaluation
+
+```bash
+docker compose run --rm evaluator
+```
+
+This uses the default input `input/repos.xlsx` and writes **`output/repos_evaluated.xlsx`**. The tool will, for each row:
+
+- Clone the repo into `temp_repos/`,
+- Run its pipeline inside a Docker container,
+- Collect context and call the LLM for scores,
+- Append scores and summary to the row.
+
+No manual steps per repo; one command processes the whole list.
+
+To use a different input or output file:
+
+```bash
+docker compose run --rm evaluator evaluate --file input/my_repos.xlsx --output my_results.xlsx
+```
+
+### Step 6 (optional): Run tests
+
+To run the test suite in the same environment as CI (inside Docker):
+
+```bash
+docker compose build
+docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing
+```
+
+See [Testing](#testing) for host-based pytest as well.
+
+### Step 7 (optional): Enable automated evaluation in CI
+
+If you use GitHub Actions and want to run a full evaluation on demand:
+
+1. In your GitHub repo: **Settings → Secrets and variables → Actions** → add a repository secret **`OPENAI_API_KEY`** with your API key.
+2. Go to **Actions → Build and run (Docker) → Run workflow** and click **Run workflow** (choose the branch that has your `input/repos.xlsx` if needed).
+3. The workflow will build, test, then run evaluation on all repos in `input/repos.xlsx` (or a default list if that file is missing). Results are uploaded as an artifact.
+
+The workflow runs only when you trigger it; it does not run on push.
 
 ---
 
@@ -60,6 +131,22 @@ python main.py evaluate --file input/repos.xlsx --output repos_evaluated.xlsx
 
 ---
 
+## Design decisions
+
+These choices keep the project production-like, reproducible, and easy to run without manual per-repo steps.
+
+| Decision | Rationale |
+|----------|-----------|
+| **Docker mandatory for pipeline runs** | Every candidate repo runs inside a `python:3.12-slim` container. This matches a production-style environment, avoids “works on my machine” (same Python and OS everywhere), and isolates untrusted code. There is no local/venv fallback. |
+| **Tests run in Docker in CI** | The test suite runs inside the same image that is used for evaluation. So we validate the exact runtime (dependencies, paths). CI does not run tests on the host. |
+| **Coverage threshold (55%)** | CI fails if coverage of the `evaluator` package drops below 55%. This keeps a minimum quality bar and encourages tests when adding or changing code. |
+| **Retries for clone and LLM** | Git clone and OpenAI API calls are retried a few times with a short delay. Transient network or rate-limit errors are less likely to fail the whole run. |
+| **Config-driven scoring** | Weights and max score live in `config/scoring.yaml`, not in code. You can tune scoring without changing the evaluator. |
+| **Fully automated evaluation** | One command processes every repo in the input file: clone → run pipeline in Docker → LLM → write row. No manual steps per repository. |
+| **Workflow on demand** | The workflow runs only when you trigger it (Actions → Run workflow), not on push. The evaluate job runs when the `OPENAI_API_KEY` secret is set. That keeps the repo usable for forks that don’t have a key, while allowing fully automated runs where the secret is configured. |
+
+---
+
 ## Input
 
 - **Format:** Excel (`.xlsx`) with at least a column **`repo_url`** (one URL per row).
@@ -75,7 +162,7 @@ All original columns plus:
 - **gold_generated** – `data/gold` exists and contains at least one CSV
 - **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality** – LLM scores 0–5
 - **final_score** – weighted score (configurable max, default 10)
-- **summary** – short technical summary from LLM
+- **summary** – short technical summary from LLM; when clone or pipeline fails, explains the error so the score is justified (e.g. "Clone failed...", "Pipeline error: ...")
 
 ## Config
 
@@ -97,6 +184,24 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 - **REPO_EVALUATOR_ROOT** – project root (default: auto).
 - **SCORING_CONFIG_PATH** – path to `scoring.yaml` (default: `config/scoring.yaml`).
 
+## Testing
+
+Tests run inside Docker in CI (mandatory; same environment as production). Locally you can run them in Docker or on the host. No API key needed (clone, pipeline, and LLM are mocked in the integration test). Coverage is reported for the `evaluator` package; CI fails if coverage drops below 55%.
+
+**In Docker (recommended, matches CI):**
+```bash
+docker compose build
+docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing
+```
+
+**On the host (optional, for quick iteration):**
+```bash
+pip install -r requirements.txt
+pytest tests/ -v
+pytest tests/ -v --cov=evaluator --cov-report=term-missing
+pytest tests/ --cov=evaluator --cov-report=html   # then open htmlcov/index.html
+```
+
 ## Project layout
 
 ```
@@ -113,7 +218,8 @@ JiraFlowEval/
 │   └── utils.py
 ├── config/
 │   └── scoring.yaml
-├── input/          # place your .xlsx here (see repos_example.xlsx)
+├── tests/         # pytest unit and integration tests
+├── input/         # place your .xlsx here (see repos_example.xlsx)
 ├── temp_repos/
 ├── output/
 ├── main.py           # entry point: python main.py [evaluate --file input/repos.xlsx]

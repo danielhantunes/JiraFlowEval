@@ -1,14 +1,12 @@
-# Build and run the evaluator on Docker (on push to main).
+# Build, test, and run the evaluator. Runs only on demand (Actions → Run workflow).
 name: Build and run (Docker)
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  docker-build-run:
+  # Build image and run all tests inside Docker (mandatory; same environment as production).
+  docker-build-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,5 +21,48 @@ jobs:
       - name: Build image
         run: docker compose build
 
-      - name: Run (smoke test)
-        run: docker compose run --rm evaluator --help
+      - name: Run tests with coverage (inside container)
+        run: docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing --cov-fail-under=55
+
+      - name: Smoke test (CLI help)
+        run: docker compose run --rm -T evaluator --help
+
+  # Full evaluation on all repos in input (no manual steps). Runs only when OPENAI_API_KEY secret is set.
+  evaluate:
+    runs-on: ubuntu-latest
+    needs: [docker-build-test]
+    if: secrets.OPENAI_API_KEY != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create .env
+        run: |
+          cp .env.example .env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+
+      - name: Ensure input and create default repos list if missing
+        run: |
+          mkdir -p input output temp_repos
+          if [ ! -f input/repos.xlsx ]; then
+            pip install -q pandas openpyxl
+            python -c "import pandas as pd; from pathlib import Path; Path('input').mkdir(exist_ok=True); pd.DataFrame([{'repo_url': 'https://github.com/octocat/Hello-World'}]).to_excel('input/repos.xlsx', index=False, engine='openpyxl')"
+          fi
+
+      - name: Build image
+        run: docker compose build
+
+      - name: Run evaluation (non-interactive, all repos in input)
+        run: docker compose run --rm -T evaluator evaluate --file input/repos.xlsx --output repos_evaluated.xlsx
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: output/repos_evaluated.xlsx
+          if-no-files-found: ignore

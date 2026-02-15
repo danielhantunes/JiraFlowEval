@@ -82,6 +82,7 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
     repo_path = clone_repo(repo_url)
     if repo_path is None:
         log_repo_error(log, repo_url, "clone", "Clone failed")
+        metrics["summary"] = "Clone failed (e.g. broken link, private repo, or network error). Score reflects no evaluation."
         return build_result_row(original_row, _metrics_to_result(metrics, weights, max_score))
 
     run_command_override = None
@@ -108,6 +109,12 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
     for k in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality"]:
         metrics[k] = llm_result.get(k, 0)
     metrics["summary"] = llm_result.get("summary", "")
+
+    # When pipeline failed, prepend the error so the Excel justifies the score.
+    if not metrics["pipeline_runs"] and run_result.get("error"):
+        err = (run_result.get("error") or "").strip()[:300]
+        if err:
+            metrics["summary"] = f"Pipeline error: {err}. " + (metrics["summary"] or "")
 
     return build_result_row(original_row, _metrics_to_result(metrics, weights, max_score))
 

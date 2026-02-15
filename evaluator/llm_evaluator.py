@@ -3,9 +3,13 @@
 import json
 import os
 import re
+import time
 from typing import Any, Optional
 
 from openai import OpenAI
+
+LLM_MAX_RETRIES = 3
+LLM_RETRY_DELAY_SEC = 2
 
 from .context_collector import context_to_string
 from .logger import get_logger
@@ -108,6 +112,20 @@ def _extract_json(text: str) -> Optional[dict]:
         return None
 
 
+def _is_retryable_error(e: Exception) -> bool:
+    """True for rate limit, server errors, timeouts, connection issues."""
+    err_str = str(e).lower()
+    if "429" in err_str or "rate" in err_str:
+        return True
+    if "503" in err_str or "502" in err_str or "500" in err_str:
+        return True
+    if "timeout" in err_str or "timed out" in err_str:
+        return True
+    if "connection" in err_str or "connect" in err_str:
+        return True
+    return False
+
+
 def get_run_command_from_readme(readme: str) -> Optional[str]:
     """
     Ask the LLM to extract the pipeline run command from the README.
@@ -119,27 +137,33 @@ def get_run_command_from_readme(readme: str) -> Optional[str]:
     if not api_key:
         log.warning("OPENAI_API_KEY not set, cannot get run command from README")
         return None
-    # Limit size to avoid token overflow
     readme_trimmed = readme[:8000].strip()
     prompt = README_RUN_COMMAND_PROMPT.format(readme=readme_trimmed)
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=100,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        if not content or content.upper() == "UNKNOWN":
-            return None
-        # Basic sanity: should look like a python command
-        if "python" not in content.lower():
-            return None
-        return content
-    except Exception as e:
-        log.warning("get_run_command_from_readme failed: %s", e)
-        return None
+    client = OpenAI(api_key=api_key)
+    last_error = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=100,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if not content or content.upper() == "UNKNOWN":
+                return None
+            if "python" not in content.lower():
+                return None
+            return content
+        except Exception as e:
+            last_error = e
+            if _is_retryable_error(e) and attempt < LLM_MAX_RETRIES:
+                log.warning("get_run_command_from_readme attempt %s/%s failed (retrying): %s", attempt, LLM_MAX_RETRIES, e)
+                time.sleep(LLM_RETRY_DELAY_SEC)
+            else:
+                log.warning("get_run_command_from_readme failed: %s", e)
+                return None
+    return None
 
 
 def evaluate_with_llm(context: dict[str, Any]) -> dict[str, Any]:
@@ -155,27 +179,34 @@ def evaluate_with_llm(context: dict[str, Any]) -> dict[str, Any]:
 
     evidence = context_to_string(context)
     user_prompt = USER_PROMPT_TEMPLATE.format(evidence=evidence)
-
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-        )
-        content = (response.choices[0].message.content or "").strip()
-        if not content:
-            return _default_llm_result("Empty LLM response")
-        parsed = _extract_json(content)
-        if not parsed:
-            return _default_llm_result(f"Invalid JSON in response: {content[:200]}")
-        return _normalize_llm_result(parsed)
-    except Exception as e:
-        log.exception("LLM call failed")
-        return _default_llm_result(str(e))
+    client = OpenAI(api_key=api_key)
+    last_error = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if not content:
+                return _default_llm_result("Empty LLM response")
+            parsed = _extract_json(content)
+            if not parsed:
+                return _default_llm_result(f"Invalid JSON in response: {content[:200]}")
+            return _normalize_llm_result(parsed)
+        except Exception as e:
+            last_error = e
+            if _is_retryable_error(e) and attempt < LLM_MAX_RETRIES:
+                log.warning("evaluate_with_llm attempt %s/%s failed (retrying): %s", attempt, LLM_MAX_RETRIES, e)
+                time.sleep(LLM_RETRY_DELAY_SEC)
+            else:
+                log.exception("LLM call failed")
+                return _default_llm_result(str(e))
+    return _default_llm_result(str(last_error) if last_error else "Unknown error")
 
 
 def _default_llm_result(error_message: str) -> dict[str, Any]:
