@@ -1,0 +1,27 @@
+# Build and run the evaluator on Docker (on push to main).
+name: Build and run (Docker)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  docker-build-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env for compose
+        run: cp .env.example .env
+
+      - name: Ensure input/output dirs exist
+        run: mkdir -p input output temp_repos
+
+      - name: Build image
+        run: docker compose build
+
+      - name: Run (smoke test)
+        run: docker compose run --rm evaluator --help

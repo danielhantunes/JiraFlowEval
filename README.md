@@ -1,82 +1,71 @@
 # Repository Evaluator (JiraFlowEval)
 
-Evaluates multiple Python Data Engineering challenge repositories: clone, run pipeline, run deterministic checks, evaluate with an LLM, and produce a scored Excel report.
+**What it does:** Takes an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and uses an LLM to score it (architecture, SLA logic, code quality, etc.). **What you get:** One Excel file with original columns plus scores and a short summary per repo.
 
-## Project Status
+🚧 *Under active development.*
 
-🚧 This project is under active development and continuously evolving.
+On every push to **main**, GitHub Actions runs `docker compose build` and a container smoke test (see `.github/workflows/main.yml`).
 
-## Reproducible setup with Docker (recommended)
+---
 
-Use Docker for the same Python version and dependencies on any machine:
+## Prerequisites
 
-```bash
-# 1. Copy env template and set your OpenAI API key
-cp .env.example .env
-# Edit .env and set OPENAI_API_KEY=sk-...
+- **Docker** – required (each candidate repo's pipeline runs in a container; no local fallback).
+- **Git** – used to clone repos.
+- **OpenAI API key** – required for LLM scoring (set in `.env`).
 
-# 2. Build the image
-docker compose build
+---
 
-# 3. Put your Excel in input/ and run
-docker compose run --rm evaluator
-```
+## Quick start (replicate in 4 steps)
 
-Output appears in `output/repos_evaluated.xlsx`. To use a different input file or output name:
+1. **Clone this repo** and go to its directory.
+
+2. **Create `.env`** from the template and set your OpenAI API key:
+   ```bash
+   cp .env.example .env
+   ```
+   Then edit `.env` and set `OPENAI_API_KEY=sk-your-key`.
+   *(Windows: `copy .env.example .env` then edit in Notepad or your editor.)*
+
+3. **Add your input Excel** to the `input/` folder with a **`repo_url`** column. Copy `input/repos_example.xlsx` to `input/repos.xlsx` and add your repo URLs (or use another filename and pass `--file input/yourfile.xlsx` in step 4).
+
+4. **Build and run:**
+   ```bash
+   docker compose build
+   docker compose run --rm evaluator
+   ```
+
+Results are written to **`output/repos_evaluated.xlsx`**. Cloned repos are in **`temp_repos/`**.
+
+---
+
+## Usage
+
+**Default:** reads `input/repos.xlsx` and writes `output/repos_evaluated.xlsx`. To use another file or output name:
 
 ```bash
 docker compose run --rm evaluator evaluate --file input/my_repos.xlsx --output my_results.xlsx
 ```
 
-Cloned repos are stored in `temp_repos/` (mounted from the host).
-
-## Local setup (without Docker)
+**Run the evaluator locally** (Docker still required on the host for pipeline runs):
 
 ```bash
 pip install -r requirements.txt
+# Set OPENAI_API_KEY in .env or: export OPENAI_API_KEY=sk-...
+python main.py evaluate --file input/repos.xlsx --output repos_evaluated.xlsx
 ```
 
-Set your OpenAI API key (required for LLM evaluation):
+- `--file` / `-f`: input Excel path (default: `input/repos.xlsx`).
+- `--output` / `-o`: output filename (default: `repos_evaluated.xlsx`). The input file is never overwritten.
 
-```bash
-export OPENAI_API_KEY=sk-...
-# or create a .env file with OPENAI_API_KEY=...
-```
-
-## Usage
-
-Place your Excel file (e.g. `repos.xlsx`) in the **input/** folder, then run:
-
-**With Docker:**
-```bash
-docker compose run --rm evaluator
-```
-
-**Without Docker:**
-```bash
-python main.py
-```
-Or with a specific file: `python main.py evaluate --file input/repos.xlsx`
-
-You can also run the CLI module directly: `python -m evaluator.cli evaluate --file input/repos.xlsx`. Pass any path with `--file path/to/your.xlsx`. Output is written to `output/repos_evaluated.xlsx` (the input file is never overwritten).
-
-Optional:
-
-- `--output` / `-o`: output filename (default: `repos_evaluated.xlsx`)
-
-**Run each repo’s pipeline in Docker:** set `RUN_IN_DOCKER=1` (in `.env` or the environment). The evaluator will run each project inside a `python:3.12-slim` container (mount repo, `pip install -r requirements.txt`, then run the entrypoint). Requires Docker on the host.
-
-**Use README to get run command:** set `USE_README_RUN_COMMAND=1`. The LLM will read each repo’s README and extract the pipeline run command (e.g. `python -m src.main`). That command is always executed **inside Docker** for safe, isolated runs (no need to set `RUN_IN_DOCKER` separately in this case).
-
-**Candidate repos and Azure:** Some pipelines use an **Azure Service Principal** (e.g. a third-party account in **read-only** mode) to read from Blob Storage. When you run repos in Docker (`RUN_IN_DOCKER=1` or `USE_README_RUN_COMMAND=1`), the evaluator **passes through** Azure-related env vars from your host (e.g. `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`) into the container so the pipeline can authenticate. Set these in your `.env` or environment so they are available when the evaluator runs.
+---
 
 ## Input
 
-- Put your spreadsheet in the **input/** folder (e.g. `input/repos.xlsx`).
-- Excel (`.xlsx`) with at least a column **repo_url**.
-- Other columns (name, email, etc.) are preserved in the output.
-
-An example file is provided: **`input/repos_example.xlsx`**. It shows the required `repo_url` column plus optional `name` and `email` columns. Copy and edit it for your repos.
+- **Format:** Excel (`.xlsx`) with at least a column **`repo_url`** (one URL per row).
+- **Location:** Put the file in **`input/`** (e.g. `input/repos.xlsx`).
+- **Other columns** (name, email, etc.) are kept in the output.
+- **Example:** `input/repos_example.xlsx` – copy it and add your repo URLs.
 
 ## Output
 
@@ -94,14 +83,19 @@ Edit `config/scoring.yaml` to change weights and max score. Weights are read at 
 
 ## Environment
 
-- **OPENAI_API_KEY** – required for LLM evaluation
-- **USE_README_RUN_COMMAND** – if set to `1`/`true`/`yes`, LLM reads each repo’s README to get the run command; that command is always run in Docker for safety
-- **RUN_IN_DOCKER** – if set to `1`/`true`/`yes`, each repo’s pipeline runs inside a Docker container (`python:3.12-slim`)
-- **Azure (when running in Docker):** if candidate repos use Azure Service Principal (read-only), set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` (and optionally `AZURE_SUBSCRIPTION_ID`) in `.env` or the environment; they are passed into the container
-- **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`)
-- **OUTPUT_DIR** – where to write results (default: `output/`)
-- **REPO_EVALUATOR_ROOT** – project root (default: auto)
-- **SCORING_CONFIG_PATH** – path to `scoring.yaml` (default: `config/scoring.yaml`)
+**Required**
+
+- **OPENAI_API_KEY** – set in `.env`; used for LLM scoring.
+- **Docker** – must be installed; each repo's pipeline runs in a `python:3.12-slim` container.
+
+**Optional** (in `.env` or shell)
+
+- **USE_README_RUN_COMMAND** – set to `1` (or `true`/`yes`) to have the LLM read each repo's README and use the run command it finds (e.g. `python -m src.main`) instead of auto-detecting `main.py` / `run_pipeline.py`.
+- **Azure** – if candidate repos need Azure Blob (e.g. Service Principal), set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` (and optionally `AZURE_SUBSCRIPTION_ID`); they are passed into the pipeline container.
+- **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`).
+- **OUTPUT_DIR** – where to write results (default: `output/`).
+- **REPO_EVALUATOR_ROOT** – project root (default: auto).
+- **SCORING_CONFIG_PATH** – path to `scoring.yaml` (default: `config/scoring.yaml`).
 
 ## Project layout
 
@@ -136,7 +130,7 @@ JiraFlowEval/
 For each repo the tool:
 
 1. Clones into `temp_repos/<repo_name>` (or pulls if present).
-2. Creates a venv, installs `requirements.txt`, runs `main.py` or `run_pipeline.py` (timeout 180s).
+2. Runs the pipeline inside a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs `main.py` or `run_pipeline.py` (timeout 180s).
 3. Checks that `data/gold` exists and contains at least one CSV.
 4. Collects README, project tree (depth 3), `sla_calculation.py`, main pipeline file, and execution summary (file content capped at 4000 chars).
 5. Sends context to the LLM for scores and summary.

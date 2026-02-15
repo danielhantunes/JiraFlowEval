@@ -85,7 +85,6 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
         return build_result_row(original_row, _metrics_to_result(metrics, weights, max_score))
 
     run_command_override = None
-    run_in_docker = None  # None = use RUN_IN_DOCKER env
     if os.environ.get("USE_README_RUN_COMMAND", "").strip().lower() in ("1", "true", "yes"):
         readme_path = repo_path / "README.md"
         if readme_path.is_file():
@@ -93,15 +92,13 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
                 readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
                 run_command_override = get_run_command_from_readme(readme_text)
                 if run_command_override:
-                    log.info("Using run command from README: %s (running in Docker for safety)", run_command_override)
-                    run_in_docker = True  # always use Docker when executing README-derived command
+                    log.info("Using run command from README: %s", run_command_override)
             except Exception as e:
                 log.warning("Could not read README for run command: %s", e)
 
     run_result = run_pipeline(
         repo_path,
         run_command_override=run_command_override,
-        run_in_docker=run_in_docker,
     )
     metrics["pipeline_runs"] = run_result.get("pipeline_runs", False)
     metrics["gold_generated"] = run_result.get("gold_generated", False)
