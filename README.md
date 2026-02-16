@@ -197,7 +197,7 @@ When you run the workflow from **Actions → Build, test & evaluate → Run work
 | **Variable** | `AZURE_ACCOUNT_URL` | Storage account URL (e.g. `https://<name>.blob.core.windows.net`). |
 | **Variable** | `AZURE_CONTAINER_NAME` | Blob container name. |
 | **Variable** | `AZURE_BLOB_NAME` | Blob name (if used by the candidate repo). |
-| **Variable** | `RAW_INPUT_FILENAME` | Input file path/name for repos that read a local file. |
+| **Variable** | `RAW_INPUT_FILENAME` | Optional. Input file path/name for repos that read a local file. |
 
 **Best practice:** use **Secrets** for credentials (API keys, client secrets, tenant/client IDs) so they are masked in logs; use **Variables** for non-sensitive config (URLs, container/blob names, paths). The workflow uses `secrets.*` for the four secrets above and `vars.*` for the four variables.
 

@@ -13,8 +13,8 @@ PIPELINE_TIMEOUT = 180
 MAX_FILE_SIZE = 4000
 DOCKER_IMAGE = "python:3.12-slim"
 
-# Env vars to pass into the pipeline container (Azure Service Principal, blob config, optional input file).
-# Set these on the host (or in .env / GitHub Actions secrets or variables).
+# Env vars to pass into the pipeline container. Main set: Azure credentials + blob config (see .env.example).
+# Optional: RAW_INPUT_FILENAME. Only vars that are set and non-empty are passed.
 AZURE_ENV_VARS = (
     "AZURE_CLIENT_ID",
     "AZURE_TENANT_ID",
