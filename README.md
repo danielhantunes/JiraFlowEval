@@ -198,10 +198,12 @@ When you run the workflow from **Actions → Build, test & evaluate → Run work
 | **Variable** | `AZURE_CONTAINER_NAME` | Blob container name. |
 | **Variable** | `AZURE_BLOB_NAME` | Blob name (if used by the candidate repo). |
 | **Variable** | `RAW_INPUT_FILENAME` | Optional. Input file path/name for repos that read a local file. |
+| **Secret** | `DOCKERHUB_USERNAME` | Optional. Docker Hub username (with `DOCKERHUB_TOKEN`) to avoid pull rate limit. |
+| **Secret** | `DOCKERHUB_TOKEN` | Optional. Docker Hub token or password for authenticated pulls. |
 
 **Best practice:** use **Secrets** for credentials (API keys, client secrets, tenant/client IDs) so they are masked in logs; use **Variables** for non-sensitive config (URLs, container/blob names, paths). The workflow uses `secrets.*` for the four secrets above and `vars.*` for the four variables.
 
-If a secret or variable is not set, the corresponding line is still written to `.env` with an empty value; the evaluator and pipeline containers receive whatever you configured.
+If a secret or variable is not set, the corresponding line is still written to `.env` with an empty value; the evaluator and pipeline containers receive whatever you configured. If you hit Docker Hub’s **pull rate limit** (“You have reached your unauthenticated pull rate limit”), add **DOCKERHUB_USERNAME** and **DOCKERHUB_TOKEN** as repository secrets so the workflow can log in before pulling `python:3.12-slim`.
 
 ## Testing
 

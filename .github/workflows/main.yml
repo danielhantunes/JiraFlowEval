@@ -64,6 +64,15 @@ jobs:
       - name: Build image
         run: docker compose build
 
+      # Optional: log in to Docker Hub to avoid rate limit (set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets).
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        continue-on-error: true
+
+      # Pre-pull pipeline image once so evaluator's docker run uses cache (avoids N pulls from Docker Hub).
+      - name: Pre-pull python:3.12-slim
+        run: docker pull python:3.12-slim
+
       - name: Run evaluation (non-interactive, all repos in input)
         run: docker compose run --rm -T evaluator --file input/repos.xlsx --output repos_evaluated.xlsx
 
