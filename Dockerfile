@@ -1,9 +1,15 @@
 # Reproducible evaluator image for data engineers.
-# Python 3.12; git for cloning; Docker CLI so the evaluator can run candidate pipelines in containers.
+# Python 3.12; git for cloning; Docker CLI (static binary) so the evaluator can run candidate pipelines in containers.
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git docker.io \
+    && apt-get install -y --no-install-recommends curl ca-certificates git \
+    && curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz | tar xzv -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && chmod +x /usr/local/bin/docker \
+    && rm -rf /tmp/docker \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y -f \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
