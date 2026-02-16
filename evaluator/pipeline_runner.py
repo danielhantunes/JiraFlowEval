@@ -80,9 +80,14 @@ def _docker_env_args() -> list[str]:
 
 def _run_in_docker(repo_path: Path, cmd_str: str) -> tuple[int, str, str]:
     """Run pip install + cmd_str inside a container with repo mounted. Return (returncode, stdout, stderr)."""
-    repo_abs = repo_path.resolve()
-    # Docker on Windows may need the path in a specific form; use as-is and let Docker handle it
-    mount = f"{repo_abs}:/app"
+    # When evaluator runs inside Docker (e.g. CI), repo_path is like /app/temp_repos/RepoName; the host path
+    # is different. Set HOST_TEMP_REPOS_DIR to the host's temp_repos path so the volume mount is correct.
+    host_repos = os.environ.get("HOST_TEMP_REPOS_DIR")
+    if host_repos:
+        mount_src = Path(host_repos) / repo_path.name
+    else:
+        mount_src = repo_path.resolve()
+    mount = f"{mount_src}:/app"
     script = f"pip install -q -r requirements.txt 2>/dev/null; {cmd_str}"
     docker_cmd = [
         "docker",

@@ -74,7 +74,7 @@ jobs:
         run: docker pull python:3.12-slim
 
       - name: Run evaluation (non-interactive, all repos in input)
-        run: docker compose run --rm -T evaluator --file input/repos.xlsx --output repos_evaluated.xlsx
+        run: docker compose run --rm -T -e HOST_TEMP_REPOS_DIR=${{ github.workspace }}/temp_repos evaluator --file input/repos.xlsx --output repos_evaluated.xlsx
 
       - name: Upload results
         uses: actions/upload-artifact@v4
