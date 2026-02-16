@@ -1,9 +1,9 @@
 # Reproducible evaluator image for data engineers.
-# Python 3.12; git required for cloning repos.
+# Python 3.12; git for cloning; Docker CLI so the evaluator can run candidate pipelines in containers.
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

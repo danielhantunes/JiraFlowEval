@@ -12,6 +12,7 @@ services:
       - ./input:/app/input
       - ./output:/app/output
       - ./temp_repos:/app/temp_repos
+      - /var/run/docker.sock:/var/run/docker.sock
     command: ["--file", "input/repos.xlsx", "--output", "repos_evaluated.xlsx"]
     stdin_open: true
     tty: true
