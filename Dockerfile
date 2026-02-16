@@ -19,6 +19,7 @@ COPY .coveragerc .coveragerc
 
 ENV REPO_EVALUATOR_ROOT=/app
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Default: run evaluation (input/repos.xlsx -> output/repos_evaluated.xlsx)
 ENTRYPOINT ["python", "main.py"]
