@@ -23,4 +23,4 @@ ENV PYTHONPATH=/app
 
 # Default: run evaluation (input/repos.xlsx -> output/repos_evaluated.xlsx)
 ENTRYPOINT ["python", "main.py"]
-CMD ["evaluate", "--file", "input/repos.xlsx", "--output", "repos_evaluated.xlsx"]
+CMD ["--file", "input/repos.xlsx", "--output", "repos_evaluated.xlsx"]

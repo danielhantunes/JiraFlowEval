@@ -27,13 +27,12 @@ from .utils import ensure_dirs, get_output_dir
 log = get_logger(__name__)
 app = typer.Typer(help="Repository evaluator for Python Data Engineering challenges.")
 
+_DEFAULT_FILE = Path("input/repos.xlsx")
+_DEFAULT_OUTPUT = "repos_evaluated.xlsx"
 
-@app.command()
-def evaluate(
-    file: Path = typer.Option(..., "--file", "-f", path_type=Path, help="Input Excel file with repo_url column"),
-    output_name: str = typer.Option("repos_evaluated.xlsx", "--output", "-o", help="Output Excel filename"),
-):
-    """Read spreadsheet, clone repos, run pipelines, evaluate with LLM, write results."""
+
+def _run_evaluate(file: Path, output_name: str) -> None:
+    """Shared evaluation logic (used by default callback and evaluate command)."""
     ensure_dirs()
     try:
         df = load_input(file)
@@ -63,6 +62,31 @@ def evaluate(
     out_path = get_output_dir() / output_name
     write_results(result_rows, out_path)
     log.info("Done. Results written to %s", out_path)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    file: Path = typer.Option(
+        _DEFAULT_FILE, "--file", "-f", path_type=Path, help="Input Excel file with repo_url column"
+    ),
+    output_name: str = typer.Option(
+        _DEFAULT_OUTPUT, "--output", "-o", help="Output Excel filename"
+    ),
+):
+    """Repository evaluator: clone repos, run pipelines, score with LLM. Run with no args or use 'evaluate' subcommand."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _run_evaluate(file, output_name)
+
+
+@app.command()
+def evaluate(
+    file: Path = typer.Option(..., "--file", "-f", path_type=Path, help="Input Excel file with repo_url column"),
+    output_name: str = typer.Option(_DEFAULT_OUTPUT, "--output", "-o", help="Output Excel filename"),
+):
+    """Read spreadsheet, clone repos, run pipelines, evaluate with LLM, write results."""
+    _run_evaluate(file, output_name)
 
 
 def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: float) -> dict:

@@ -65,7 +65,7 @@ jobs:
         run: docker compose build
 
       - name: Run evaluation (non-interactive, all repos in input)
-        run: docker compose run --rm -T evaluator evaluate --file input/repos.xlsx --output repos_evaluated.xlsx
+        run: docker compose run --rm -T evaluator --file input/repos.xlsx --output repos_evaluated.xlsx
 
       - name: Upload results
         uses: actions/upload-artifact@v4
