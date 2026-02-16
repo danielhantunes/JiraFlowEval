@@ -81,7 +81,7 @@ USER_PROMPT_TEMPLATE = """Use only the provided evidence below.
 Score according to the Gold layer and report rules given in the system prompt.
 
 Return ONLY valid JSON with no other text:
-{
+{{
   "medallion_architecture": 0-5,
   "sla_logic": 0-5,
   "pipeline_organization": 0-5,
@@ -89,7 +89,7 @@ Return ONLY valid JSON with no other text:
   "code_quality": 0-5,
   "cloud_ingestion": 0-5,
   "summary": "short technical summary"
-}
+}}
 
 Evidence:
 
