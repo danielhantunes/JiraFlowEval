@@ -63,7 +63,7 @@ def _entrypoint_to_cmd_string(entry_path: Path, repo_path: Path, is_module: bool
     """Build the command string as the user would run it (e.g. python -m src.main)."""
     if is_module:
         rel = entry_path.relative_to(repo_path).with_suffix("")
-        module_name = str(rel).replace("\\", ".")
+        module_name = ".".join(rel.parts)
         return f"python -m {module_name}"
     return f"python {entry_path.name}"
 
