@@ -476,6 +476,9 @@ def compute_dimension_scores(check_results: dict[str, bool]) -> dict[str, int]:
     for dim, total in dimension_totals.items():
         earned = dimension_earned.get(dim, 0)
         out[dim] = round(100 * earned / total) if total else 0
+    # If any PII is found, sensitive_data_exposure_score must be 0 (not 50).
+    if out.get("sensitive_data_exposure_score", 100) < 100:
+        out["sensitive_data_exposure_score"] = 0
     return out
 
 

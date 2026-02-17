@@ -79,7 +79,7 @@ def test_no_pii_in_source_files_fail_email(tmp_path):
     result = run_checks(tmp_path)
     assert result["no_pii_in_source_files"] is False
     scores = compute_dimension_scores(result)
-    assert scores["sensitive_data_exposure_score"] == 50  # one of two checks failed
+    assert scores["sensitive_data_exposure_score"] == 0  # any PII found -> score 0
 
 
 def test_no_pii_in_source_files_fail_phone(tmp_path):
@@ -111,7 +111,7 @@ def test_no_pii_in_medallion_data_files_fail(tmp_path):
     result = run_checks(tmp_path)
     assert result["no_pii_in_medallion_data_files"] is False
     scores = compute_dimension_scores(result)
-    assert scores["sensitive_data_exposure_score"] == 50
+    assert scores["sensitive_data_exposure_score"] == 0  # any PII found -> score 0
 
 
 def test_gold_has_parquet_check(tmp_path):
