@@ -6,6 +6,8 @@ import pytest
 
 from evaluator.detectors import (
     CHECK_REGISTRY,
+    CHECK_ID_TO_IMPROVEMENT,
+    build_suggested_improvements,
     compute_dimension_scores,
     run_checks,
     build_deterministic_summary,
@@ -93,9 +95,23 @@ def test_build_deterministic_evaluation_report():
     assert "## Architecture (medallion layers)" in report
     assert "## Score justification (presence-based)" in report
     assert "No subjective scoring" in report
+    assert "## Suggested Improvements" in report
+    assert "Add a raw layer" not in report  # has_raw_layer passed
+    assert "Add a bronze layer" in report or "Add a gold layer" in report  # many failed
     # Same inputs -> same output
     report2 = build_deterministic_evaluation_report(check_results, scores)
     assert report == report2
+
+
+def test_build_suggested_improvements():
+    """Suggested improvements list is derived only from failed checks."""
+    all_pass = {check_id: True for _d, check_id, _w in CHECK_REGISTRY}
+    assert build_suggested_improvements(all_pass) == []
+    all_fail = {check_id: False for _d, check_id, _w in CHECK_REGISTRY}
+    suggestions = build_suggested_improvements(all_fail)
+    assert len(suggestions) == len(CHECK_ID_TO_IMPROVEMENT)
+    assert any("snake_case" in s for s in suggestions)
+    assert any("raw layer" in s for s in suggestions)
 
 
 def test_build_deterministic_evaluation_report_compact_under_limit():
@@ -119,3 +135,6 @@ def test_build_deterministic_evaluation_report_compact_under_limit():
         assert len(report) <= max_chars, f"Compact report length {len(report)} > {max_chars}"
         assert "Final score" in report or "Checks:" in report
         assert "75" in report
+    # With all checks passing we still get cloud suggestion (cloud_ingestion=0); section may appear
+    report_1800 = build_deterministic_evaluation_report_compact(check_results, scores, max_chars=1800)
+    assert "Suggested Improvements" in report_1800 or "Cloud:" in report_1800

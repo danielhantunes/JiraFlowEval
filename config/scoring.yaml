@@ -14,4 +14,4 @@ weights:
 normalization:
   max_score: 100
   # Max characters for evaluation_report per repository (Excel-safe; enforced at generation, not by truncation)
-  summary_max_chars: 1800
+  summary_max_chars: 4000

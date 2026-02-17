@@ -115,7 +115,7 @@ The output Excel contains all original columns plus:
 | `security_practices_score` | Score 0–100 (credentials, env usage, .gitignore, config safety). |
 | `final_score` | Weighted overall score 0–100 (configurable in `config/scoring.yaml`). |
 | `summary` | Short **deterministic** technical summary (checks passed, dimension scores, pipeline status). |
-| `evaluation_report` | Detailed technical report. **If `OPENAI_API_KEY` is set:** LLM-generated narrative. **Otherwise:** deterministic compact report (same content style, no API). Capped at 1800 characters. |
+| `evaluation_report` | Detailed technical report including a **Suggested Improvements** section (actionable recommendations from detected issues only). **If `OPENAI_API_KEY` is set:** LLM-generated narrative. **Otherwise:** deterministic compact report (same content style, no API). Capped at 1800 characters. |
 
 ---
 

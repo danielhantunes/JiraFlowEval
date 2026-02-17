@@ -256,6 +256,48 @@ DETECTORS: dict[str, Callable[[Path], bool]] = {
     "has_common_folders": _has_common_folders,
 }
 
+# Actionable improvement suggestions for each failed check (used in Suggested Improvements section).
+CHECK_ID_TO_IMPROVEMENT: dict[str, str] = {
+    "has_raw_layer": "Add a raw layer (e.g. data/raw) to improve traceability and reprocessing capability.",
+    "has_bronze_layer": "Add a bronze layer (e.g. data/bronze) for normalized raw data.",
+    "has_silver_layer": "Add a silver layer (e.g. data/silver) for enriched/cleaned data.",
+    "has_gold_layer": "Add a gold layer (e.g. data/gold) for business-ready outputs and reports.",
+    "pipeline_orchestrates_layers": "Ensure the main pipeline orchestrates all medallion layers (raw → bronze → silver → gold) in sequence.",
+    "has_sla_calculation_file": "Add an SLA calculation module (e.g. sla_calculation.py or src/sla/sla_calculation.py).",
+    "gold_has_csv_reports": "Produce at least one CSV report from the gold layer (e.g. average SLA by analyst or by ticket type).",
+    "gold_has_parquet": "Consider producing Parquet outputs from the gold layer for efficient storage and querying.",
+    "code_references_business_hours_or_sla": "Implement or reference business-hours or SLA logic in code (e.g. resolution time in business hours).",
+    "gold_has_sla_related_columns": "Include SLA-related columns in gold outputs (e.g. resolution time, expected SLA, is_sla_met).",
+    "has_main_or_run_pipeline": "Add a clear pipeline entrypoint (main.py or run_pipeline.py).",
+    "has_requirements_txt": "Add requirements.txt for reproducible dependencies.",
+    "has_config_or_env_example": "Add configuration (e.g. config.py, .env.example, or config.yaml) for environment-specific settings.",
+    "has_clear_entrypoint": "Ensure a discoverable entrypoint (main.py, run_pipeline.py, or src/main.py).",
+    "has_readme": "Add a README.md with project description and usage.",
+    "readme_mentions_run_or_usage": "Improve README by adding run/usage instructions (e.g. how to run the pipeline).",
+    "readme_substantive": "Improve README with more substantive content (e.g. pipeline architecture section and execution instructions).",
+    "has_src_or_ingestion_structure": "Organize code under src/ or ingestion/ for clearer structure.",
+    "has_docstrings_or_type_hints": "Add docstrings or type hints to improve code clarity and maintainability.",
+    "no_hardcoded_credentials_in_code": "Move hardcoded credentials from code to environment variables (e.g. .env); do not commit secrets.",
+    "folders_lowercase_or_snake": "Use lowercase snake_case for folder names (e.g. data, src, config).",
+    "python_files_snake_case": "Rename Python files to snake_case to follow Python naming standards (e.g. process_data.py not ProcessData.py).",
+    "data_paths_use_layer_names": "Use medallion layer names in data paths (e.g. data/raw, data/bronze, data/silver, data/gold).",
+    "has_common_folders": "Adopt common project folders (e.g. src, data, config, tests).",
+}
+
+
+def build_suggested_improvements(check_results: dict[str, bool]) -> list[str]:
+    """Return actionable improvement suggestions for each failed check. Order matches CHECK_REGISTRY."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for _dim, check_id, _weight in CHECK_REGISTRY:
+        if check_id in seen or check_results.get(check_id, True):
+            continue
+        seen.add(check_id)
+        suggestion = CHECK_ID_TO_IMPROVEMENT.get(check_id)
+        if suggestion:
+            out.append(suggestion)
+    return out
+
 
 def run_checks(repo_path: Path) -> dict[str, bool]:
     """Run all registered checks; return {check_id: passed}."""
@@ -389,6 +431,19 @@ def build_deterministic_evaluation_report(
         lines.append(f"- {dim}: {sc}/100")
     lines.append("")
     lines.append("No subjective scoring; identical repository structure yields identical scores.")
+
+    # Suggested Improvements
+    suggestions = build_suggested_improvements(check_results)
+    if scores.get("cloud_ingestion", 0) == 0:
+        suggestions.append("Consider adding cloud ingestion (e.g. Azure Blob) for production-style pipelines.")
+    if (scores.get("security_practices_score", 100) or 100) < 50:
+        suggestions.append("Move hardcoded credentials to environment variables and ensure .env is in .gitignore.")
+    if suggestions:
+        lines.append("")
+        lines.append("## Suggested Improvements")
+        lines.append("")
+        for s in suggestions:
+            lines.append(f"- {s}")
     return "\n".join(lines)
 
 
@@ -443,4 +498,18 @@ def build_deterministic_evaluation_report_compact(
     add("")
     add(f"Cloud: {scores.get('cloud_ingestion', 0)}/100. Security: {scores.get('security_practices_score', 0)}/100.")
     add("Scores from presence checks only; no subjective scoring.")
+
+    # Suggested Improvements (from failed checks and low scores)
+    suggestions = build_suggested_improvements(check_results)
+    if scores.get("cloud_ingestion", 0) == 0:
+        suggestions.append("Consider adding cloud ingestion (e.g. Azure Blob) for production-style pipelines.")
+    if (scores.get("security_practices_score", 100) or 100) < 50:
+        suggestions.append("Move hardcoded credentials to environment variables and ensure .env is in .gitignore.")
+    if suggestions:
+        add("")
+        add("## Suggested Improvements")
+        add("")
+        for s in suggestions:
+            if not add(f"- {s}"):
+                break
     return "\n".join(parts)

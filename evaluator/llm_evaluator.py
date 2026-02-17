@@ -169,13 +169,16 @@ SUMMARY_DEFAULT_MAX_CHARS = 1800
 
 SUMMARY_SYSTEM_PROMPT = """You are generating a technical evaluation summary for a data engineering repository.
 
-Explain why the repository received these scores and include a short Docker validation section.
+Your response MUST include two parts:
+
+1. **Evaluation summary** – Explain why the repository received these scores and include a short Docker validation section. Use only the provided docker_results data. Do not change any numeric scores or invent test results.
+
+2. **Suggested Improvements** – A section headed "## Suggested Improvements". Based ONLY on the Detected flags (checks that show "Fail"), list actionable, specific recommendations. You must NOT invent problems: only suggest improvements for failed checks. Be concise; mention exact files or paths when the evidence supports it (e.g. "Rename file 'X' to snake_case", "Add data/raw layer", "Move credentials in config.py to environment variables"). If no checks failed, write "No suggested improvements based on the evaluation." Keep each suggestion to one line.
 
 IMPORTANT:
 - Do not change any numeric scores
-- Do not invent test results
-- Only use the provided docker_results data
-- Keep explanation concise
+- Do not invent test results or issues
+- Suggested Improvements must be derived only from failed flags in the list provided
 - Limit the response to {max_chars} characters
 - Use line breaks for readability"""
 
@@ -188,7 +191,7 @@ Detected flags:
 Docker results:
 {docker_results}
 
-Write the evaluation summary. Maximum {max_chars} characters. Use line breaks. Explain the scores and include a short Docker validation section using only the docker_results above. Do not change any scores or invent results."""
+Write the evaluation summary (with a short Docker validation section) and then a "## Suggested Improvements" section based only on the failed flags above. Maximum {max_chars} characters. Do not change any scores or invent results."""
 
 
 def _format_scores_for_prompt(scores: dict[str, Any]) -> str:
