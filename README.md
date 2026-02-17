@@ -29,7 +29,7 @@
 |-------------|---------|
 | **Docker** | Runs the evaluator and each candidate repo’s pipeline in containers. **Required**; there is no local fallback. |
 | **Git** | Used to clone candidate repositories. |
-| **OpenAI API key** | **Optional.** Only used for the detailed narrative **evaluation report** and for inferring the run command from README. **All scores are computed without the LLM** (deterministic checks). |
+| **OpenAI API key** | **Optional.** Only used for the detailed narrative **evaluation report** and for inferring the run command from README (when requested via `USE_README_RUN_COMMAND` or as **fallback** when auto-discovery finds no entrypoint). **All scores are computed without the LLM** (deterministic checks). |
 
 ---
 
@@ -136,7 +136,7 @@ Edit **`config/scoring.yaml`** to change dimension weights and max score. Weight
 | Variable | Purpose |
 |----------|---------|
 | `OPENAI_API_KEY` | If set, enables the detailed LLM-generated **evaluation report** and optional README run-command extraction. Scores are still deterministic. |
-| `USE_README_RUN_COMMAND` | Set to `1`, `true`, or `yes` to have the LLM infer the run command from each repo’s README instead of auto-detecting `main.py` / `run_pipeline.py`. |
+| `USE_README_RUN_COMMAND` | Set to `1`, `true`, or `yes` to have the LLM infer the run command from each repo’s README instead of auto-detecting `main.py` / `run_pipeline.py`. When unset, the LLM is still used as a **fallback** when auto-discovery finds no entrypoint (requires `OPENAI_API_KEY`). |
 | `TEMP_REPOS_DIR` | Where to clone repos (default: `temp_repos/`). |
 | `OUTPUT_DIR` | Where to write results (default: `output/`). |
 | `SCORING_CONFIG_PATH` | Path to scoring config (default: `config/scoring.yaml`). |
@@ -200,7 +200,7 @@ Use **Secrets** for credentials (masked in logs) and **Variables** for non-sensi
 | **Tests in Docker in CI** | Same image as evaluation; validates exact runtime and paths. |
 | **Coverage threshold (55%)** | CI fails if coverage drops; keeps a minimum quality bar. |
 | **Config-driven scoring** | Weights and max score in `config/scoring.yaml`; tune without code changes. |
-| **Deterministic scores** | Scores come from boolean presence checks and fixed weights. Same structure → same scores. LLM is used only for the narrative report (and optional run command). |
+| **Deterministic scores** | Scores come from boolean presence checks and fixed weights. Same structure → same scores. LLM is used only for the narrative report and for run-command inference (opt-in or fallback when auto-discovery finds no entrypoint). |
 | **Retries** | Git clone and optional OpenAI calls are retried to reduce impact of transient failures. |
 | **Workflow on demand** | Evaluation runs only when you trigger the workflow, not on every push. |
 
@@ -243,7 +243,7 @@ JiraFlowEval/
 For each repo the tool:
 
 1. **Clone** into `temp_repos/<repo_name>` (or pull if already present).
-2. **Run pipeline** in a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs the discovered entrypoint (e.g. `main.py`, `run_pipeline.py`, or `python -m src.main`; timeout 180s).
+2. **Run pipeline** in a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs the entrypoint. The command is chosen by: auto-discovery (`main.py`, `run_pipeline.py`, `src/main.py`); or, if `USE_README_RUN_COMMAND` is set, from the README via LLM; or, if auto-discovery finds nothing, from the README via LLM as fallback (requires `OPENAI_API_KEY`). Timeout 180s.
 3. **Verify** that `data/gold` exists and contains at least one CSV.
 4. **Run deterministic checks** (medallion layers, SLA, pipeline org, readme, code quality, naming, security) and compute dimension scores from fixed weights.
 5. **Collect context** (README, project tree, `sla_calculation.py`, main pipeline file, execution summary; content capped per file).

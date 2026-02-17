@@ -10,7 +10,7 @@ load_dotenv()
 
 from .context_collector import collect_context
 from .logger import get_logger, log_repo_error
-from .pipeline_runner import run_pipeline, _repo_uses_azure_ingestion
+from .pipeline_runner import run_pipeline, _find_entrypoint, _repo_uses_azure_ingestion
 from .repo_cloner import clone_repo
 from .scoring import load_config, compute_final_score, metric_value, BOOL_METRICS, DEFAULT_MAX_SCORE
 from .spreadsheet import (
@@ -103,6 +103,18 @@ def evaluate(
     _run_evaluate(file, output_name)
 
 
+def _get_run_command_from_readme_at(repo_path: Path) -> str | None:
+    """Read README at repo_path and return LLM-inferred run command, or None."""
+    readme_path = repo_path / "README.md"
+    if not readme_path.is_file():
+        return None
+    try:
+        readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
+        return get_run_command_from_readme(readme_text)
+    except Exception:
+        return None
+
+
 def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: float, summary_max_chars: int = 1800) -> dict:
     """Run clone -> pipeline -> context -> LLM -> score; merge into one result row."""
     # Start with original row; fill result columns from pipeline + LLM + scoring
@@ -128,15 +140,16 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
 
     run_command_override = None
     if os.environ.get("USE_README_RUN_COMMAND", "").strip().lower() in ("1", "true", "yes"):
-        readme_path = repo_path / "README.md"
-        if readme_path.is_file():
-            try:
-                readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
-                run_command_override = get_run_command_from_readme(readme_text)
-                if run_command_override:
-                    log.info("Using run command from README: %s", run_command_override)
-            except Exception as e:
-                log.warning("Could not read README for run command: %s", e)
+        run_command_override = _get_run_command_from_readme_at(repo_path)
+        if run_command_override:
+            log.info("Using run command from README: %s", run_command_override)
+    if run_command_override is None and _find_entrypoint(repo_path) is None:
+        run_command_override = _get_run_command_from_readme_at(repo_path)
+        if run_command_override:
+            log.info(
+                "Using run command from README (fallback; auto-discovery found no entrypoint): %s",
+                run_command_override,
+            )
 
     run_result = run_pipeline(
         repo_path,
