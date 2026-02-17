@@ -107,16 +107,36 @@ def _get_repo_raw_input_filename(repo_path: Path) -> str:
     return DEFAULT_RAW_INPUT_FILENAME
 
 
+# Minimal raw JSON so pipelines that expect tickets_raw.json can run when file is missing in clone (e.g. CI).
+# Schema: must have "issues" list (jiraflow-sample1 and similar); empty list is valid.
+_MINIMAL_RAW_JSON = b'{"issues": []}'
+
+
+def _seed_minimal_raw_file(repo_path: Path, filename: str) -> bool:
+    """Write a minimal raw JSON file at repo root so the pipeline can run. Returns True if written."""
+    raw_path = repo_path / filename
+    try:
+        raw_path.write_bytes(_MINIMAL_RAW_JSON)
+        log.info("Seeded minimal raw input %s for pipeline run (file was missing in clone).", filename)
+        return True
+    except Exception as e:
+        log.warning("Could not seed %s: %s", filename, e)
+        return False
+
+
 def _require_raw_input_file_exists(repo_path: Path) -> Optional[str]:
     """
     If repo does not use Azure ingestion, require that the raw input file exists at repo root.
-    Returns None if ok, or an error message string if the file is missing.
+    If missing, try to seed a minimal file so the pipeline can run (e.g. in CI); only return error if seed fails.
+    Returns None if ok (file existed or was seeded), or an error message string if the file is missing and seed failed.
     """
     if _repo_uses_azure_ingestion(repo_path):
         return None
     filename = _get_repo_raw_input_filename(repo_path)
     raw_path = repo_path / filename
     if raw_path.is_file():
+        return None
+    if _seed_minimal_raw_file(repo_path, filename):
         return None
     return (
         f"Repo uses local file ingestion but required input file is missing: {filename} "

@@ -144,22 +144,34 @@ def test_require_raw_input_file_exists_has_file(tmp_path):
 
 
 def test_require_raw_input_file_exists_missing_file(tmp_path):
-    """Local ingestion without file -> error message."""
+    """Local ingestion without file -> seed minimal raw file and return None (so pipeline can run)."""
     err = pr._require_raw_input_file_exists(tmp_path)
+    assert err is None
+    filename = pr._get_repo_raw_input_filename(tmp_path)
+    raw_path = tmp_path / filename
+    assert raw_path.is_file()
+    assert raw_path.read_bytes() == b'{"issues": []}'
+
+
+def test_require_raw_input_file_exists_missing_file_seed_fails(tmp_path):
+    """When seed fails (e.g. read-only), return error message."""
+    with patch.object(pr, "_seed_minimal_raw_file", return_value=False):
+        err = pr._require_raw_input_file_exists(tmp_path)
     assert err is not None
     expected_name = pr._get_repo_raw_input_filename(tmp_path)
     assert expected_name in err
     assert "missing" in err.lower() or "required" in err.lower()
 
 
-def test_run_pipeline_skips_when_raw_file_missing(tmp_path):
-    """run_pipeline returns error and does not run Docker when local repo has no raw file."""
+def test_run_pipeline_seeds_and_runs_when_raw_file_missing(tmp_path, monkeypatch):
+    """When raw file is missing we seed it and run Docker (pipeline can run)."""
+    monkeypatch.delenv("RAW_INPUT_FILENAME", raising=False)
     (tmp_path / "main.py").write_text("print('ok')", encoding="utf-8")
     (tmp_path / "requirements.txt").write_text("", encoding="utf-8")
-    with patch.object(pr, "_run_in_docker") as mock_docker:
+    with patch.object(pr, "_run_in_docker", return_value=(0, "", "")) as mock_docker:
         result = pr.run_pipeline(tmp_path)
-    assert result["pipeline_runs"] is False
-    assert result["error"] is not None
-    expected_name = pr._get_repo_raw_input_filename(tmp_path)
-    assert expected_name in result["error"]
-    mock_docker.assert_not_called()
+    assert result["pipeline_runs"] is True
+    assert result["error"] is None
+    filename = pr._get_repo_raw_input_filename(tmp_path)
+    assert (tmp_path / filename).is_file()
+    mock_docker.assert_called_once()
