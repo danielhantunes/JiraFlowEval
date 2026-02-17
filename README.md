@@ -1,271 +1,254 @@
-# Repository Evaluator (JiraFlowEval)
+# JiraFlowEval — Repository Evaluator
 
-**What it does:** Takes an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and evaluates it using **deterministic presence-based checks** (boolean best-practice detectors + fixed weights). **What you get:** One Excel file with original columns plus scores and a short summary per repo. Two repos with the same structure always receive the same scores.
+**What it does:** Reads an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and evaluates it using **deterministic presence-based checks** (boolean best-practice detectors + fixed weights).
+
+**What you get:** One Excel file with your original columns plus **scores** and a **summary** per repo. Same repo structure → same scores every time. No API key is required for scoring.
 
 🚧 *Under active development.*
 
-The workflow runs **on demand** only: in the GitHub repo go to **Actions → Build, test & evaluate → Run workflow**. It builds the Docker image and runs all tests inside the container (coverage ≥55%). If the **OPENAI_API_KEY** secret is set, the same run can include a full evaluation on all repos in the input file (see [Step 7](#step-7-optional-enable-automated-evaluation-in-ci) and [Design decisions](#design-decisions)).
+---
+
+## Table of contents
+
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Input & output](#input--output)
+- [Configuration](#configuration)
+- [Environment variables](#environment-variables)
+- [Testing](#testing)
+- [CI: GitHub Actions](#ci-github-actions)
+- [Design decisions](#design-decisions)
+- [Project layout](#project-layout)
+- [How evaluation works](#how-evaluation-works)
 
 ---
 
 ## Prerequisites
 
-Before you start, ensure you have:
-
 | Requirement | Purpose |
 |-------------|---------|
-| **Docker** | Runs the evaluator and every candidate repo's pipeline in containers (mandatory; no local fallback). |
+| **Docker** | Runs the evaluator and each candidate repo’s pipeline in containers. **Required**; there is no local fallback. |
 | **Git** | Used to clone candidate repositories. |
-| **OpenAI API key** | Optional; used only for the detailed evaluation report and README run-command extraction. **Scores are computed without the LLM** (deterministic checks). |
+| **OpenAI API key** | **Optional.** Only used for the detailed narrative **evaluation report** and for inferring the run command from README. **All scores are computed without the LLM** (deterministic checks). |
 
 ---
 
-## Implement this project step by step
+## Quick start
 
-Follow these steps to run the evaluator locally or in your own fork.
-
-### Step 1: Clone the repository
+### 1. Clone and configure
 
 ```bash
 git clone <this-repo-url>
 cd JiraFlowEval
-```
-
-### Step 2: Create and configure `.env`
-
-Copy the template. Set `OPENAI_API_KEY` only if you want the detailed narrative report and README run-command extraction (scoring works without it):
-
-```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and set:
+Edit `.env` and set **`OPENAI_API_KEY`** only if you want the detailed LLM-generated evaluation report. Scoring works without it.
 
-- **`OPENAI_API_KEY`** – your OpenAI API key (e.g. `sk-...`).
+*Windows:* `copy .env.example .env` then edit in your editor.
 
-*(On Windows: `copy .env.example .env` then edit in Notepad or your editor.)*
+### 2. Prepare the input file
 
-Optional: set `USE_README_RUN_COMMAND=1` if you want the LLM to infer the run command from each repo's README. If candidate repos need Azure, add the Azure env vars listed in [Environment](#environment).
+- Create an `input/` folder if it doesn’t exist.
+- Add an Excel file (e.g. `input/repos.xlsx`) with at least one column: **`repo_url`**.
+- Put one repository URL per row (e.g. `https://github.com/org/repo-name`).
+- Any other columns (name, email, etc.) are preserved in the output.
 
-### Step 3: Prepare the input spreadsheet
+If the repo includes `input/repos_example.xlsx`, copy it to `input/repos.xlsx` and replace the URLs.
 
-1. Create the `input/` folder if it does not exist.
-2. Add an Excel file (e.g. `input/repos.xlsx`) with at least one column: **`repo_url`**.
-3. Put one repository URL per row (e.g. `https://github.com/org/repo-name`).
-4. You can keep other columns (name, email, etc.); they are preserved in the output.
-
-If the repo includes `input/repos_example.xlsx`, copy it to `input/repos.xlsx` and replace the example URLs with your own.
-
-### Step 4: Build the Docker image
-
-From the project root:
+### 3. Build and run
 
 ```bash
 docker compose build
-```
-
-This builds the evaluator image (Python 3.12, dependencies from `requirements.txt`).
-
-### Step 5: Run the evaluation
-
-```bash
 docker compose run --rm evaluator
 ```
 
-This uses the default input `input/repos.xlsx` and writes **`output/repos_evaluated.xlsx`**. The tool will, for each row:
+- **Input (default):** `input/repos.xlsx`
+- **Output (default):** `output/repos_evaluated.xlsx`
 
-- Clone the repo into `temp_repos/`,
-- Run its pipeline inside a Docker container,
-- Run deterministic presence-based checks (medallion layers, SLA, pipeline org, readme, code quality, naming, security),
-- Compute dimension scores from check results using fixed weights,
-- Append scores and a short deterministic summary to the row (and optionally a detailed narrative report if `OPENAI_API_KEY` is set).
+For each row the tool: clones the repo → runs its pipeline in Docker → runs deterministic checks → computes scores → appends results. No manual steps per repo.
 
-No manual steps per repo; one command processes the whole list.
-
-To use a different input or output file:
+**Custom input/output:**
 
 ```bash
 docker compose run --rm evaluator evaluate --file input/my_repos.xlsx --output my_results.xlsx
 ```
 
-### Step 6 (optional): Run tests
+**CLI options:**
 
-To run the test suite in the same environment as CI (inside Docker):
+| Option | Short | Default | Description |
+|--------|--------|---------|-------------|
+| `--file` | `-f` | `input/repos.xlsx` | Input Excel path |
+| `--output` | `-o` | `repos_evaluated.xlsx` | Output filename (written under `output/`). Input file is never overwritten. |
 
-```bash
-docker compose build
-docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing
-```
-
-See [Testing](#testing) for host-based pytest as well.
-
-### Step 7 (optional): Enable automated evaluation in CI
-
-If you use GitHub Actions and want to run a full evaluation on demand:
-
-1. In your GitHub repo: **Settings → Secrets and variables → Actions** → add the **secrets** and **variables** you need (see [GitHub Actions: secrets and variables](#github-actions-secrets-and-variables)). At minimum, add repository secret **`OPENAI_API_KEY`** for LLM scoring. If candidate repos use Azure Blob or a specific input file, add the Azure secrets and variables listed there.
-2. Go to **Actions → Build, test & evaluate → Run workflow** and click **Run workflow** (choose the branch that has your `input/repos.xlsx` if needed).
-3. The workflow will build, test, then run evaluation on all repos in `input/repos.xlsx` (or a default list if that file is missing). Download the result Excel from the run page: **Artifacts → evaluation-results**.
-
-The workflow runs only when you trigger it; it does not run on push.
-
----
-
-## Usage
-
-**Default:** reads `input/repos.xlsx` and writes `output/repos_evaluated.xlsx`. To use another file or output name:
-
-```bash
-docker compose run --rm evaluator evaluate --file input/my_repos.xlsx --output my_results.xlsx
-```
-
-**Run the evaluator locally** (Docker still required on the host for pipeline runs):
+**Run without Docker for the evaluator** (pipeline runs still use Docker on the host):
 
 ```bash
 pip install -r requirements.txt
-# Set OPENAI_API_KEY in .env or: export OPENAI_API_KEY=sk-...
 python main.py evaluate --file input/repos.xlsx --output repos_evaluated.xlsx
 ```
 
-- `--file` / `-f`: input Excel path (default: `input/repos.xlsx`).
-- `--output` / `-o`: output filename (default: `repos_evaluated.xlsx`). The input file is never overwritten.
+---
+
+## Input & output
+
+### Input
+
+- **Format:** Excel (`.xlsx`) with at least a column **`repo_url`** (one URL per row).
+- **Location:** e.g. `input/repos.xlsx`. Other columns are kept in the output.
+
+### Output
+
+The output Excel contains all original columns plus:
+
+| Column | Description |
+|--------|-------------|
+| `pipeline_runs` | Pipeline ran successfully (boolean / 0–100 in file). |
+| `gold_generated` | `data/gold` exists and contains at least one CSV. |
+| `medallion_architecture` | Score 0–100 (from presence checks: raw/bronze/silver/gold layers, orchestration). |
+| `sla_logic` | Score 0–100 (SLA file, gold CSV/parquet, business-hours/SLA references). |
+| `pipeline_organization` | Score 0–100 (entrypoint, requirements, config/env example). |
+| `readme_clarity` | Score 0–100 (README present, run/usage mentioned, substantive). |
+| `code_quality` | Score 0–100 (src/ingestion structure, docstrings/type hints, no hardcoded credentials). |
+| `cloud_ingestion` | 0 or 100 (100 if Azure/cloud ingestion is detected). |
+| `naming_conventions_score` | Score 0–100 (folders/files/data paths, common folders). |
+| `security_practices_score` | Score 0–100 (credentials, env usage, .gitignore, config safety). |
+| `final_score` | Weighted overall score 0–100 (configurable in `config/scoring.yaml`). |
+| `summary` | Short **deterministic** technical summary (checks passed, dimension scores, pipeline status). |
+| `evaluation_report` | Detailed technical report. **If `OPENAI_API_KEY` is set:** LLM-generated narrative. **Otherwise:** deterministic compact report (same content style, no API). Capped at 1800 characters. |
+
+---
+
+## Configuration
+
+Edit **`config/scoring.yaml`** to change dimension weights and max score. Weights are read at runtime; do not hardcode them in code.
+
+---
+
+## Environment variables
+
+**Required**
+
+- **Docker** — must be installed; each candidate repo’s pipeline runs in a `python:3.12-slim` container.
+
+**Optional** (in `.env` or shell)
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | If set, enables the detailed LLM-generated **evaluation report** and optional README run-command extraction. Scores are still deterministic. |
+| `USE_README_RUN_COMMAND` | Set to `1`, `true`, or `yes` to have the LLM infer the run command from each repo’s README instead of auto-detecting `main.py` / `run_pipeline.py`. |
+| `TEMP_REPOS_DIR` | Where to clone repos (default: `temp_repos/`). |
+| `OUTPUT_DIR` | Where to write results (default: `output/`). |
+| `SCORING_CONFIG_PATH` | Path to scoring config (default: `config/scoring.yaml`). |
+
+**Azure / candidate pipelines:** If candidate repos use Azure Blob or a specific input file, set in `.env`: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_ACCOUNT_URL`, `AZURE_CONTAINER_NAME`, `AZURE_BLOB_NAME`, and optionally `RAW_INPUT_FILENAME`. These are passed into the pipeline container. For GitHub Actions, see [CI: GitHub Actions](#ci-github-actions).
+
+---
+
+## Testing
+
+Tests run **inside Docker in CI** (same environment as production). Locally you can use Docker or the host. No API key is needed; clone, pipeline, and LLM are mocked in the integration test. Coverage is for the `evaluator` package; CI fails if coverage drops below 55%.
+
+**In Docker (recommended, matches CI):**
+
+```bash
+docker compose build
+docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing --cov-fail-under=55
+```
+
+**On the host (optional):**
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v --cov=evaluator --cov-report=term-missing
+pytest tests/ --cov=evaluator --cov-report=html   # open htmlcov/index.html
+```
+
+---
+
+## CI: GitHub Actions
+
+The workflow **runs only when you trigger it:** **Actions → Build, test & evaluate → Run workflow.** It does not run on push.
+
+1. **Build & test:** Builds the Docker image and runs the test suite inside the container (coverage ≥ 55%).
+2. **Evaluate (optional):** If you have set the required secrets/variables, the same run can evaluate all repos in `input/repos.xlsx` and upload the result Excel as an artifact.
+
+**Secrets and variables** (under **Settings → Secrets and variables → Actions**):
+
+| Type | Name | Purpose |
+|------|------|---------|
+| Secret | `OPENAI_API_KEY` | For LLM-generated evaluation report. |
+| Secret | `AZURE_TENANT_ID` | Azure AD tenant (if candidate repos use Azure). |
+| Secret | `AZURE_CLIENT_ID` | Azure app ID. |
+| Secret | `AZURE_CLIENT_SECRET` | Azure client secret. |
+| Variable | `AZURE_ACCOUNT_URL` | Storage account URL. |
+| Variable | `AZURE_CONTAINER_NAME` | Blob container name. |
+| Variable | `AZURE_BLOB_NAME` | Blob name (if used). |
+| Variable | `RAW_INPUT_FILENAME` | Optional. Input file name for repos that read a local file. |
+| Secret | `DOCKERHUB_USERNAME` | Optional. Avoid Docker Hub rate limit. |
+| Secret | `DOCKERHUB_TOKEN` | Optional. With `DOCKERHUB_USERNAME`. |
+
+Use **Secrets** for credentials (masked in logs) and **Variables** for non-sensitive config. If `input/repos.xlsx` is missing, the workflow creates a default list so the evaluate job can still run.
 
 ---
 
 ## Design decisions
 
-These choices keep the project production-like, reproducible, and easy to run without manual per-repo steps.
-
 | Decision | Rationale |
 |----------|-----------|
-| **Docker mandatory for pipeline runs** | Every candidate repo runs inside a `python:3.12-slim` container. This matches a production-style environment, avoids “works on my machine” (same Python and OS everywhere), and isolates untrusted code. There is no local/venv fallback. |
-| **Tests run in Docker in CI** | The test suite runs inside the same image that is used for evaluation. So we validate the exact runtime (dependencies, paths). CI does not run tests on the host. |
-| **Coverage threshold (55%)** | CI fails if coverage of the `evaluator` package drops below 55%. This keeps a minimum quality bar and encourages tests when adding or changing code. |
-| **Retries for clone and report API** | Git clone and (optional) OpenAI API calls for the detailed report are retried a few times. Transient errors are less likely to fail the whole run. |
-| **Config-driven scoring** | Weights and max score live in `config/scoring.yaml`, not in code. You can tune scoring without changing the evaluator. |
-| **Deterministic evaluation** | Scores are computed from boolean presence checks (e.g. has_raw_layer, has_sla_calculation_file) and fixed weights. Same repo structure → same scores. No subjective LLM scoring for dimensions. |
-| **Fully automated evaluation** | One command processes every repo in the input file: clone → run pipeline in Docker → run checks → write row. No manual steps per repository. |
-| **Workflow on demand** | The workflow runs only when you trigger it (Actions → Run workflow), not on push. The evaluate job runs every time you trigger the workflow; set the `OPENAI_API_KEY` secret (and any Azure secrets/variables) for real LLM scoring and pipeline auth. |
+| **Docker mandatory for pipeline runs** | Each candidate repo runs in a `python:3.12-slim` container: same environment everywhere, isolation for untrusted code. No local/venv fallback. |
+| **Tests in Docker in CI** | Same image as evaluation; validates exact runtime and paths. |
+| **Coverage threshold (55%)** | CI fails if coverage drops; keeps a minimum quality bar. |
+| **Config-driven scoring** | Weights and max score in `config/scoring.yaml`; tune without code changes. |
+| **Deterministic scores** | Scores come from boolean presence checks and fixed weights. Same structure → same scores. LLM is used only for the narrative report (and optional run command). |
+| **Retries** | Git clone and optional OpenAI calls are retried to reduce impact of transient failures. |
+| **Workflow on demand** | Evaluation runs only when you trigger the workflow, not on every push. |
 
 ---
-
-## Input
-
-- **Format:** Excel (`.xlsx`) with at least a column **`repo_url`** (one URL per row).
-- **Location:** Put the file in **`input/`** (e.g. `input/repos.xlsx`).
-- **Other columns** (name, email, etc.) are kept in the output.
-- **Example:** `input/repos_example.xlsx` – copy it and add your repo URLs.
-
-## Output
-
-All original columns plus:
-
-- **pipeline_runs** – pipeline executed successfully (True/False)
-- **gold_generated** – `data/gold` exists and contains at least one CSV
-- **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality**, **cloud_ingestion** – dimension scores 0–100 (cloud_ingestion is 0 when the repo has no cloud/Azure ingestion; otherwise LLM-scored)
-- **final_score** – weighted score 0–100 (configurable max in config, default 100)
-- **summary** – short technical summary from LLM; when clone or pipeline fails, explains the error so the score is justified (e.g. "Clone failed...", "Pipeline error: ...")
-- **evaluation_report** – detailed technical evaluation report (senior data engineer code review): architecture decisions, data format choices, medallion structure, best practices, and justification for each score. Structured with sections (Executive summary, Architecture, Data formats, Medallion structure, Best practices, Score justification).
-
-## Config
-
-Edit `config/scoring.yaml` to change weights and max score. Weights are read at runtime; do not hardcode in code.
-
-## Environment
-
-**Required**
-
-- **OPENAI_API_KEY** – set in `.env`; used for LLM scoring.
-- **Docker** – must be installed; each repo's pipeline runs in a `python:3.12-slim` container.
-
-**Optional** (in `.env` or shell)
-
-- **USE_README_RUN_COMMAND** – set to `1` (or `true`/`yes`) to have the LLM read each repo's README and use the run command it finds (e.g. `python -m src.main`) instead of auto-detecting `main.py` / `run_pipeline.py`.
-- **Azure / input file** – if candidate repos need Azure Blob or a specific input file, set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_ACCOUNT_URL`, `AZURE_CONTAINER_NAME`, `AZURE_BLOB_NAME`, and optionally `RAW_INPUT_FILENAME` in `.env`; they are passed into the pipeline container. For **GitHub Actions**, see [secrets and variables](#github-actions-secrets-and-variables).
-- **TEMP_REPOS_DIR** – where to clone repos (default: `temp_repos/`).
-- **OUTPUT_DIR** – where to write results (default: `output/`).
-- **REPO_EVALUATOR_ROOT** – project root (default: auto).
-- **SCORING_CONFIG_PATH** – path to `scoring.yaml` (default: `config/scoring.yaml`).
-
-### GitHub Actions: secrets and variables
-
-When you run the workflow from **Actions → Build, test & evaluate → Run workflow**, the **evaluate** job builds a `.env` from repository **Secrets** and **Variables**. Add them under **Settings → Secrets and variables → Actions**.
-
-| Type | Name | Purpose |
-|------|------|---------|
-| **Secret** | `OPENAI_API_KEY` | OpenAI API key for LLM scoring. |
-| **Secret** | `AZURE_TENANT_ID` | Azure AD tenant (Service Principal). |
-| **Secret** | `AZURE_CLIENT_ID` | Azure app (client) ID. |
-| **Secret** | `AZURE_CLIENT_SECRET` | Azure client secret. |
-| **Variable** | `AZURE_ACCOUNT_URL` | Storage account URL (e.g. `https://<name>.blob.core.windows.net`). |
-| **Variable** | `AZURE_CONTAINER_NAME` | Blob container name. |
-| **Variable** | `AZURE_BLOB_NAME` | Blob name (if used by the candidate repo). |
-| **Variable** | `RAW_INPUT_FILENAME` | Optional. Input file path/name for repos that read a local file. |
-| **Secret** | `DOCKERHUB_USERNAME` | Optional. Docker Hub username (with `DOCKERHUB_TOKEN`) to avoid pull rate limit. |
-| **Secret** | `DOCKERHUB_TOKEN` | Optional. Docker Hub token or password for authenticated pulls. |
-
-**Best practice:** use **Secrets** for credentials (API keys, client secrets, tenant/client IDs) so they are masked in logs; use **Variables** for non-sensitive config (URLs, container/blob names, paths). The workflow uses `secrets.*` for the four secrets above and `vars.*` for the four variables.
-
-If a secret or variable is not set, the corresponding line is still written to `.env` with an empty value; the evaluator and pipeline containers receive whatever you configured. If you hit Docker Hub’s **pull rate limit** (“You have reached your unauthenticated pull rate limit”), add **DOCKERHUB_USERNAME** and **DOCKERHUB_TOKEN** as repository secrets so the workflow can log in before pulling `python:3.12-slim`.
-
-## Testing
-
-Tests run inside Docker in CI (mandatory; same environment as production). Locally you can run them in Docker or on the host. No API key needed (clone, pipeline, and LLM are mocked in the integration test). Coverage is reported for the `evaluator` package; CI fails if coverage drops below 55%.
-
-**In Docker (recommended, matches CI):**
-```bash
-docker compose build
-docker compose run --rm -T --entrypoint pytest evaluator tests/ -v --cov=evaluator --cov-report=term-missing
-```
-
-**On the host (optional, for quick iteration):**
-```bash
-pip install -r requirements.txt
-pytest tests/ -v
-pytest tests/ -v --cov=evaluator --cov-report=term-missing
-pytest tests/ --cov=evaluator --cov-report=html   # then open htmlcov/index.html
-```
 
 ## Project layout
 
 ```
 JiraFlowEval/
 ├── evaluator/
-│   ├── cli.py
-│   ├── spreadsheet.py
-│   ├── repo_cloner.py
-│   ├── pipeline_runner.py
+│   ├── cli.py              # CLI and evaluate orchestration
+│   ├── spreadsheet.py      # Excel read/write
+│   ├── repo_cloner.py      # Clone/pull repos
+│   ├── pipeline_runner.py  # Run pipeline in Docker
 │   ├── context_collector.py
-│   ├── llm_evaluator.py
-│   ├── scoring.py
+│   ├── detectors.py        # Deterministic presence checks
+│   ├── security_scorer.py  # Credential and .gitignore checks
+│   ├── llm_evaluator.py    # Optional LLM report
+│   ├── scoring.py          # Weights and final score
 │   ├── logger.py
 │   └── utils.py
 ├── config/
 │   └── scoring.yaml
-├── tests/         # pytest unit and integration tests
-├── input/         # place your .xlsx here (see repos_example.xlsx)
+├── tests/
+├── input/                  # Place your .xlsx here
 ├── temp_repos/
 ├── output/
-├── main.py           # entry point: python main.py [evaluate --file input/repos.xlsx]
+├── main.py                 # Entry: python main.py [evaluate ...]
 ├── Dockerfile
 ├── docker-compose.yml
-├── .coveragerc       # coverage config for pytest-cov
-├── .dockerignore
-├── .env.example      # copy to .env and set OPENAI_API_KEY
+├── .env.example            # Copy to .env, set OPENAI_API_KEY if needed
 ├── requirements.txt
 └── README.md
 ```
 
-## Pipeline behavior
+---
+
+## How evaluation works
 
 For each repo the tool:
 
-1. Clones into `temp_repos/<repo_name>` (or pulls if present).
-2. Runs the pipeline inside a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs the discovered entrypoint (e.g. `main.py`, `run_pipeline.py`, or `python -m src.main`; timeout 180s).
-3. Checks that `data/gold` exists and contains at least one CSV.
-4. Collects README, project tree (depth 3), `sla_calculation.py`, main pipeline file, and execution summary (file content capped at 4000 chars).
-5. Sends context to the LLM for scores and summary.
-6. Computes weighted final score from `config/scoring.yaml`.
-7. Appends all result columns to the row and writes the new spreadsheet.
+1. **Clone** into `temp_repos/<repo_name>` (or pull if already present).
+2. **Run pipeline** in a Docker container (`python:3.12-slim`): installs `requirements.txt`, runs the discovered entrypoint (e.g. `main.py`, `run_pipeline.py`, or `python -m src.main`; timeout 180s).
+3. **Verify** that `data/gold` exists and contains at least one CSV.
+4. **Run deterministic checks** (medallion layers, SLA, pipeline org, readme, code quality, naming, security) and compute dimension scores from fixed weights.
+5. **Collect context** (README, project tree, `sla_calculation.py`, main pipeline file, execution summary; content capped per file).
+6. **Compute final score** from `config/scoring.yaml` and build the deterministic summary (and compact report if no API key).
+7. **Optional:** If `OPENAI_API_KEY` is set, call the LLM to generate the detailed **evaluation_report**.
+8. Append all result columns to the row and write the spreadsheet.
 
-If **clone fails** (e.g. broken link), the row is still written with zero scores and a **summary** explaining the failure; pipeline and LLM are skipped for that repo. If the **pipeline fails**, the summary includes the error so the score is justified. Errors for a single repo are logged; evaluation continues for the rest.
+**Failure handling:** If clone fails, the row is still written with zero scores and a summary explaining the failure; pipeline and LLM are skipped for that repo. If the pipeline fails, the summary includes the error. One repo’s error does not stop the rest; errors are logged.
