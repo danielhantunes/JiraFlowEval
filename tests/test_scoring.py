@@ -10,6 +10,7 @@ from evaluator.scoring import (
     DEFAULT_SUMMARY_MAX_CHARS,
     DEFAULT_WEIGHTS,
     compute_final_score,
+    compute_final_score_as_average,
     load_config,
     metric_value,
 )
@@ -91,3 +92,50 @@ def test_compute_final_score_mixed():
     score = compute_final_score(metrics, DEFAULT_WEIGHTS, max_score=100.0)
     assert 0 < score < 100
     assert isinstance(score, float)
+
+
+def test_compute_final_score_as_average_all_zeros():
+    """Average of column scores: all 0 -> 0."""
+    metrics = {k: 0 for k in ("pipeline_runs", "gold_generated", "medallion_architecture", "sla_logic")}
+    score = compute_final_score_as_average(metrics, max_score=100.0)
+    assert score == 0.0
+
+
+def test_compute_final_score_as_average_all_max():
+    """Average of column scores: all 100 -> 100."""
+    metrics = {
+        "pipeline_runs": True,
+        "gold_generated": True,
+        "medallion_architecture": 100,
+        "sla_logic": 100,
+        "pipeline_organization": 100,
+        "readme_clarity": 100,
+        "code_quality": 100,
+        "cloud_ingestion": 100,
+        "naming_conventions_score": 100,
+        "security_practices_score": 100,
+        "sensitive_data_exposure_score": 100,
+    }
+    score = compute_final_score_as_average(metrics, max_score=100.0)
+    assert score == 100.0
+
+
+def test_compute_final_score_as_average_equals_column_average():
+    """Final score is the arithmetic mean of the 11 score columns."""
+    metrics = {
+        "pipeline_runs": True,
+        "gold_generated": False,
+        "medallion_architecture": 80,
+        "sla_logic": 60,
+        "pipeline_organization": 100,
+        "readme_clarity": 40,
+        "code_quality": 20,
+        "cloud_ingestion": 0,
+        "naming_conventions_score": 100,
+        "security_practices_score": 100,
+        "sensitive_data_exposure_score": 0,
+    }
+    score = compute_final_score_as_average(metrics, max_score=100.0)
+    # 100 + 0 + 80 + 60 + 100 + 40 + 20 + 0 + 100 + 100 + 0 = 600; 600/11 ≈ 54.55
+    assert abs(score - (600 / 11)) < 0.01
+    assert score == round(600 / 11, 2)

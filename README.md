@@ -1,6 +1,6 @@
 # JiraFlowEval — Repository Evaluator
 
-**What it does:** Reads an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and evaluates it using **deterministic presence-based checks** (boolean best-practice detectors + fixed weights).
+**What it does:** Reads an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and evaluates it using **deterministic presence-based checks** (boolean best-practice detectors + fixed weights). Use it to assess Jira/data-pipeline repos against a common standard (e.g. medallion layout, SLA, security, PII).
 
 **What you get:** One Excel file with your original columns plus **scores** and a **summary** per repo. Same repo structure → same scores every time. No API key is required for scoring.
 
@@ -19,7 +19,10 @@
 - [CI: GitHub Actions](#ci-github-actions)
 - [Design decisions](#design-decisions)
 - [Project layout](#project-layout)
+- [Architecture & data flow](#architecture--data-flow)
 - [How evaluation works](#how-evaluation-works)
+- [Development](#development)
+- [Limitations](#limitations)
 
 ---
 
@@ -114,7 +117,7 @@ The output Excel contains all original columns plus:
 | `naming_conventions_score` | Score 0–100 (folders/files/data paths, common folders). |
 | `security_practices_score` | Score 0–100 (credentials, env usage, .gitignore, config safety). |
 | `sensitive_data_exposure_score` | Score 0–100: no email/phone PII in (1) source files under `src/`, `ingestion/`, or root, and (2) non–gitignored JSON/CSV/Parquet in `data/raw`, `data/bronze`, `data/silver`, `data/gold`. |
-| `final_score` | Weighted overall score 0–100 (configurable in `config/scoring.yaml`). |
+| `final_score` | Arithmetic mean of the score columns above (0–100). Same as the average of the column scores in the output. |
 | `summary` | Short **deterministic** technical summary (checks passed, dimension scores, pipeline status). |
 | `evaluation_report` | Detailed technical report including a **Suggested Improvements** section (actionable recommendations from detected issues only). **If `OPENAI_API_KEY` is set:** LLM-generated narrative. **Otherwise:** deterministic compact report (same content style, no API). Capped at 1800 characters. |
 
@@ -122,7 +125,7 @@ The output Excel contains all original columns plus:
 
 ## Configuration
 
-Edit **`config/scoring.yaml`** to change dimension weights and max score. Weights are read at runtime; do not hardcode them in code.
+Edit **`config/scoring.yaml`** to change max score and summary length. The **final score** is the arithmetic average of the score columns (weights in the config are not used for the final score).
 
 ---
 
@@ -200,7 +203,7 @@ Use **Secrets** for credentials (masked in logs) and **Variables** for non-sensi
 | **Docker mandatory for pipeline runs** | Each candidate repo runs in a `python:3.12-slim` container: same environment everywhere, isolation for untrusted code. No local/venv fallback. |
 | **Tests in Docker in CI** | Same image as evaluation; validates exact runtime and paths. |
 | **Coverage threshold (55%)** | CI fails if coverage drops; keeps a minimum quality bar. |
-| **Config-driven scoring** | Weights and max score in `config/scoring.yaml`; tune without code changes. |
+| **Final score = average of columns** | The overall score is the arithmetic mean of the 11 score columns (pipeline_runs, gold_generated, medallion, SLA, etc.). Config in `scoring.yaml` sets max score and summary length only. |
 | **Deterministic scores** | Scores come from boolean presence checks and fixed weights. Same structure → same scores. LLM is used only for the narrative report and for run-command inference (opt-in or fallback when auto-discovery finds no entrypoint). |
 | **Retries** | Git clone and optional OpenAI calls are retried to reduce impact of transient failures. |
 | **Workflow on demand** | Evaluation runs only when you trigger the workflow, not on every push. |
@@ -239,6 +242,12 @@ JiraFlowEval/
 
 ---
 
+## Architecture & data flow
+
+**Flow:** Excel (repo URLs) → clone each repo into `temp_repos/` → run pipeline in Docker (`python:3.12-slim`) → run deterministic checks on repo files → compute dimension scores and final score (average of columns) → optionally call LLM for narrative report → write result row to output Excel. One row per repo; failures (clone or pipeline) still produce a row with zero scores and an error summary.
+
+---
+
 ## How evaluation works
 
 For each repo the tool:
@@ -248,8 +257,25 @@ For each repo the tool:
 3. **Verify** that `data/gold` exists and contains at least one CSV.
 4. **Run deterministic checks** (medallion layers, SLA, pipeline org, readme, code quality, naming, security) and compute dimension scores from fixed weights.
 5. **Collect context** (README, project tree, `sla_calculation.py`, main pipeline file, execution summary; content capped per file).
-6. **Compute final score** from `config/scoring.yaml` and build the deterministic summary (and compact report if no API key).
+6. **Compute final score** as the average of the score columns; build the deterministic summary (and compact report if no API key). `config/scoring.yaml` controls max score and summary length only.
 7. **Optional:** If `OPENAI_API_KEY` is set, call the LLM to generate the detailed **evaluation_report**.
 8. Append all result columns to the row and write the spreadsheet.
 
 **Failure handling:** If clone fails, the row is still written with zero scores and a summary explaining the failure; pipeline and LLM are skipped for that repo. If the pipeline fails, the summary includes the error. One repo’s error does not stop the rest; errors are logged.
+
+---
+
+## Development
+
+- **Add or change a presence check:** Edit `evaluator/detectors.py`. Register the check in `CHECK_REGISTRY` (dimension, check_id, weight). Implement the detector function and add it to `DETECTORS`. Dimension scores are 0–100 from passed checks; `sensitive_data_exposure_score` is set to 0 if any PII check fails.
+- **Scoring:** Final score is the average of the 11 score columns (`evaluator/scoring.py`: `compute_final_score_as_average`, `FINAL_SCORE_AVERAGE_KEYS`). Config in `config/scoring.yaml` sets max score and summary length.
+- **Run against one repo locally:** Put a single-row Excel with one `repo_url` in `input/`, then run the evaluator; or run the pipeline and checks from the repo root (see `evaluator/cli.py` and `evaluator/detectors.py` for entrypoints).
+
+---
+
+## Limitations
+
+- **Docker required** for running candidate pipelines; there is no local/venv fallback. Evaluator itself can run on the host with `python main.py evaluate ...`.
+- **Pipeline timeout:** 180 seconds per repo. Slow pipelines may be marked as failed.
+- **Private repos:** Clone requires valid Git credentials (SSH key or token). Set up access before adding private URLs to the input file.
+- **No versioning of results:** Output file is overwritten per run; keep a copy if you need to compare runs.

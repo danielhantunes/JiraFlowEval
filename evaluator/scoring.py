@@ -28,6 +28,21 @@ SCORE_SCALE_0_5_TO_100 = 20  # 5 * 20 = 100
 # All metrics are 0-5 scale internally; booleans mapped to 0 or 5
 BOOL_METRICS = ("pipeline_runs", "gold_generated")
 
+# Column scores in the final output (0-100 each). Final score = average of these.
+FINAL_SCORE_AVERAGE_KEYS = (
+    "pipeline_runs",
+    "gold_generated",
+    "medallion_architecture",
+    "sla_logic",
+    "pipeline_organization",
+    "readme_clarity",
+    "code_quality",
+    "cloud_ingestion",
+    "naming_conventions_score",
+    "security_practices_score",
+    "sensitive_data_exposure_score",
+)
+
 
 def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     """Load scoring.yaml; return weights and normalization. Use defaults if missing."""
@@ -97,3 +112,26 @@ def compute_final_score(
     # Average is in [0, 5]; scale to [0, max_score]
     avg_5 = weighted_sum / total_weight
     return round(avg_5 * (max_score / 5.0), 2)
+
+
+def compute_final_score_as_average(metrics: dict[str, Any], max_score: float = 100.0) -> float:
+    """
+    Final score as the arithmetic mean of the output score columns (0-100 each).
+    So the final score equals the average of the column scores shown in the report.
+    """
+    total = 0.0
+    count = 0
+    for key in FINAL_SCORE_AVERAGE_KEYS:
+        if key not in metrics:
+            continue
+        raw = metrics[key]
+        if key in BOOL_METRICS:
+            v = max_score if raw in (True, 1, "true", "True", "yes") else 0.0
+        else:
+            v = float(raw) if isinstance(raw, (int, float)) else 0.0
+            v = max(0.0, min(max_score, v))
+        total += v
+        count += 1
+    if count == 0:
+        return 0.0
+    return round(total / count, 2)

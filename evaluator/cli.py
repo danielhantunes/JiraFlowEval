@@ -12,7 +12,7 @@ from .context_collector import collect_context
 from .logger import get_logger, log_repo_error
 from .pipeline_runner import run_pipeline, _find_entrypoint, _repo_uses_azure_ingestion
 from .repo_cloner import clone_repo
-from .scoring import load_config, compute_final_score, metric_value, BOOL_METRICS, DEFAULT_MAX_SCORE
+from .scoring import load_config, compute_final_score_as_average, metric_value, BOOL_METRICS, DEFAULT_MAX_SCORE
 from .spreadsheet import (
     load_input,
     get_repo_rows,
@@ -194,8 +194,8 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
 
 
 def _metrics_to_result(metrics: dict, weights: dict, max_score: float) -> dict:
-    """Compute final_score and build result dict; all scores in 0-100 range."""
-    final = compute_final_score(metrics, weights, max_score)
+    """Compute final_score as average of column scores; build result dict (all scores 0-100)."""
+    final = compute_final_score_as_average(metrics, max_score)
     out = {}
     for k in RESULT_COLUMNS:
         if k == "final_score":
