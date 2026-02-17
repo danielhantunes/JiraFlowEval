@@ -6,6 +6,7 @@ passed checks using fixed weights so the same structure always gets the same sco
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from pathlib import Path
 from typing import Callable
@@ -47,8 +48,9 @@ CHECK_REGISTRY: list[tuple[str, str, int]] = [
     ("naming_conventions_score", "python_files_snake_case", 25),
     ("naming_conventions_score", "data_paths_use_layer_names", 25),
     ("naming_conventions_score", "has_common_folders", 25),
-    # Sensitive data exposure (1 check, 100)
-    ("sensitive_data_exposure_score", "no_pii_in_source_files", 100),
+    # Sensitive data exposure (2 checks, 50 each)
+    ("sensitive_data_exposure_score", "no_pii_in_source_files", 50),
+    ("sensitive_data_exposure_score", "no_pii_in_medallion_data_files", 50),
 ]
 
 
@@ -271,6 +273,103 @@ def _no_pii_in_source_files(repo_path: Path) -> bool:
     return True
 
 
+def _load_gitignore_patterns(repo_path: Path) -> list[str]:
+    """Load .gitignore patterns (strip comments/blank; normalize to /)."""
+    gitignore = repo_path / ".gitignore"
+    if not gitignore.is_file():
+        return []
+    patterns = []
+    for line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Normalize to forward slashes for matching
+        patterns.append(line.replace("\\", "/"))
+    return patterns
+
+
+def _is_gitignored(repo_path: Path, file_path: Path, patterns: list[str]) -> bool:
+    """Return True if file_path (under repo_path) is matched by any .gitignore pattern."""
+    try:
+        rel = file_path.relative_to(repo_path)
+    except ValueError:
+        return False
+    path_posix = rel.as_posix()
+    for pattern in patterns:
+        # Support ** by replacing with * for fnmatch (loose: * in fnmatch doesn't match /)
+        # So we use a simple prefix/suffix fallback for patterns containing **
+        if "**" in pattern:
+            parts = pattern.split("**")
+            prefix = parts[0].rstrip("/")
+            suffix = parts[-1].lstrip("/") if len(parts) > 1 else ""
+            if prefix and not path_posix.startswith(prefix + "/") and path_posix != prefix:
+                continue
+            if suffix and not path_posix.endswith(suffix) and not fnmatch.fnmatch(path_posix, "*" + suffix):
+                continue
+            return True
+        if fnmatch.fnmatch(path_posix, pattern):
+            return True
+        if fnmatch.fnmatch(path_posix, pattern.rstrip("/") + "/*"):
+            return True
+    return False
+
+
+def _text_has_pii(text: str) -> bool:
+    """Return True if text contains email or phone PII."""
+    if _EMAIL_RE.search(text):
+        return True
+    if _PHONE_RE.search(text):
+        return True
+    return False
+
+
+def _scan_json_or_csv_for_pii(file_path: Path, max_chars: int = 500_000) -> bool:
+    """Return True if file (JSON or CSV) contains PII. True = has PII (fail)."""
+    content = _read_file_safe(file_path, max_size=max_chars)
+    return _text_has_pii(content)
+
+
+def _scan_parquet_for_pii(file_path: Path) -> bool:
+    """Return True if Parquet file string columns contain PII. True = has PII (fail)."""
+    try:
+        import pandas as pd
+    except ImportError:
+        return False
+    try:
+        df = pd.read_parquet(file_path)
+    except Exception:
+        return False
+    # Concatenate string representation of all columns and scan
+    text = df.astype(str).to_string()
+    return _text_has_pii(text)
+
+
+def _no_pii_in_medallion_data_files(repo_path: Path) -> bool:
+    """Return True if no email or phone PII is found in non-gitignored JSON/CSV/Parquet under data/raw, bronze, silver, gold."""
+    patterns = _load_gitignore_patterns(repo_path)
+    medallion_dirs = ["raw", "bronze", "silver", "gold"]
+    data_dir = repo_path / "data"
+    if not data_dir.is_dir():
+        return True
+    for layer in medallion_dirs:
+        layer_dir = data_dir / layer
+        if not layer_dir.is_dir():
+            continue
+        for ext in ("*.json", "*.csv", "*.parquet"):
+            for f in layer_dir.rglob(ext):
+                if not f.is_file():
+                    continue
+                if _is_gitignored(repo_path, f, patterns):
+                    continue
+                if f.suffix.lower() == ".json" or f.suffix.lower() == ".csv":
+                    if _scan_json_or_csv_for_pii(f):
+                        return False
+                elif f.suffix.lower() == ".parquet":
+                    if _scan_parquet_for_pii(f):
+                        return False
+    return True
+
+
 # Map check_id -> detector function
 DETECTORS: dict[str, Callable[[Path], bool]] = {
     "has_raw_layer": _has_raw_layer,
@@ -298,6 +397,7 @@ DETECTORS: dict[str, Callable[[Path], bool]] = {
     "data_paths_use_layer_names": _data_paths_use_layer_names,
     "has_common_folders": _has_common_folders,
     "no_pii_in_source_files": _no_pii_in_source_files,
+    "no_pii_in_medallion_data_files": _no_pii_in_medallion_data_files,
 }
 
 # Actionable improvement suggestions for each failed check (used in Suggested Improvements section).
@@ -327,6 +427,7 @@ CHECK_ID_TO_IMPROVEMENT: dict[str, str] = {
     "data_paths_use_layer_names": "Use medallion layer names in data paths (e.g. data/raw, data/bronze, data/silver, data/gold).",
     "has_common_folders": "Adopt common project folders (e.g. src, data, config, tests).",
     "no_pii_in_source_files": "Remove emails or other PII from source files; use config or environment variables for sensitive data.",
+    "no_pii_in_medallion_data_files": "Remove emails or other PII from JSON/CSV/Parquet in data/ (raw, bronze, silver, gold), or add those files to .gitignore so they are not committed.",
 }
 
 
@@ -472,7 +573,7 @@ def build_deterministic_evaluation_report(
     lines.append("")
     lines.append(f"- cloud_ingestion score: {scores.get('cloud_ingestion', 0)}/100 (100 if Azure/cloud ingestion detected, else 0).")
     lines.append(f"- security_practices_score: {scores.get('security_practices_score', 0)}/100 (from credential and .gitignore checks).")
-    lines.append(f"- sensitive_data_exposure_score: {scores.get('sensitive_data_exposure_score', 0)}/100 (no email/phone PII in source files).")
+    lines.append(f"- sensitive_data_exposure_score: {scores.get('sensitive_data_exposure_score', 0)}/100 (no email/phone PII in source or non-gitignored medallion data files).")
     lines.append("")
 
     lines.append("## Score justification (presence-based)")

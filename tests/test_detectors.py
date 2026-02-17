@@ -79,7 +79,7 @@ def test_no_pii_in_source_files_fail_email(tmp_path):
     result = run_checks(tmp_path)
     assert result["no_pii_in_source_files"] is False
     scores = compute_dimension_scores(result)
-    assert scores["sensitive_data_exposure_score"] == 0
+    assert scores["sensitive_data_exposure_score"] == 50  # one of two checks failed
 
 
 def test_no_pii_in_source_files_fail_phone(tmp_path):
@@ -87,6 +87,31 @@ def test_no_pii_in_source_files_fail_phone(tmp_path):
     (tmp_path / "main.py").write_text("phone = '(123) 456-7890'", encoding="utf-8")
     result = run_checks(tmp_path)
     assert result["no_pii_in_source_files"] is False
+
+
+def test_no_pii_in_medallion_data_files_ignored(tmp_path):
+    """no_pii_in_medallion_data_files skips files that are in .gitignore."""
+    (tmp_path / "data" / "bronze").mkdir(parents=True)
+    (tmp_path / ".gitignore").write_text("data/bronze/*.json\n", encoding="utf-8")
+    (tmp_path / "data" / "bronze" / "issues.json").write_text(
+        '["alice@example.com"]', encoding="utf-8"
+    )
+    result = run_checks(tmp_path)
+    assert result["no_pii_in_medallion_data_files"] is True
+
+
+def test_no_pii_in_medallion_data_files_fail(tmp_path):
+    """no_pii_in_medallion_data_files fails when non-ignored data file contains PII."""
+    (tmp_path / "data" / "gold").mkdir(parents=True)
+    # No .gitignore or pattern that doesn't match this file
+    (tmp_path / ".gitignore").write_text("data/bronze/*.json\n", encoding="utf-8")
+    (tmp_path / "data" / "gold" / "report.json").write_text(
+        '{"contact": "bob@example.com"}', encoding="utf-8"
+    )
+    result = run_checks(tmp_path)
+    assert result["no_pii_in_medallion_data_files"] is False
+    scores = compute_dimension_scores(result)
+    assert scores["sensitive_data_exposure_score"] == 50
 
 
 def test_gold_has_parquet_check(tmp_path):
