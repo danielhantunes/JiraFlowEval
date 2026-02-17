@@ -47,6 +47,8 @@ CHECK_REGISTRY: list[tuple[str, str, int]] = [
     ("naming_conventions_score", "python_files_snake_case", 25),
     ("naming_conventions_score", "data_paths_use_layer_names", 25),
     ("naming_conventions_score", "has_common_folders", 25),
+    # Sensitive data exposure (1 check, 100)
+    ("sensitive_data_exposure_score", "no_pii_in_source_files", 100),
 ]
 
 
@@ -194,6 +196,10 @@ def _folders_lowercase_or_snake(repo_path: Path) -> bool:
     return True
 
 
+# Conventional Python file names that are allowed even though they don't match snake_case.
+_PYTHON_CONVENTIONAL_STEMS = frozenset({"__init__", "__main__"})
+
+
 def _python_files_snake_case(repo_path: Path) -> bool:
     for base in [repo_path / "src", repo_path / "ingestion", repo_path]:
         if not base.is_dir():
@@ -202,6 +208,8 @@ def _python_files_snake_case(repo_path: Path) -> bool:
             if "__pycache__" in str(py) or "venv" in str(py):
                 continue
             name = py.stem
+            if name in _PYTHON_CONVENTIONAL_STEMS:
+                continue
             if not re.match(r"^[a-z][a-z0-9_]*$", name):
                 return False
     return True
@@ -226,6 +234,41 @@ def _data_paths_use_layer_names(repo_path: Path) -> bool:
 def _has_common_folders(repo_path: Path) -> bool:
     names = {p.name.lower() for p in repo_path.iterdir() if p.is_dir() and not p.name.startswith(".")}
     return bool(names & {"src", "data", "config", "tests"})
+
+
+# PII patterns: email and phone (deterministic detection in source files only).
+_EMAIL_RE = re.compile(
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+)
+# International (+prefix) or US-style (xxx) xxx-xxxx only; avoid matching version numbers or IPs
+_PHONE_RE = re.compile(
+    r"(?:\+\d{1,3}[-.\s]?\d{2,}(?:[-.\s]?\d{2,}){2,}|\(\d{3}\)\s*\d{3}[-.]?\d{4})\b"
+)
+
+
+def _no_pii_in_source_files(repo_path: Path) -> bool:
+    """Return True if no email or phone PII is found in Python source files under src/, ingestion/, or root."""
+    def scan_file(py: Path) -> bool:
+        content = _read_file_safe(py)
+        if _EMAIL_RE.search(content):
+            return False
+        if _PHONE_RE.search(content):
+            return False
+        return True
+
+    for base in [repo_path / "src", repo_path / "ingestion"]:
+        if not base.is_dir():
+            continue
+        for py in base.rglob("*.py"):
+            path_str = str(py)
+            if "__pycache__" in path_str or "venv" in path_str or ".venv" in path_str:
+                continue
+            if not scan_file(py):
+                return False
+    for py in repo_path.glob("*.py"):
+        if not scan_file(py):
+            return False
+    return True
 
 
 # Map check_id -> detector function
@@ -254,6 +297,7 @@ DETECTORS: dict[str, Callable[[Path], bool]] = {
     "python_files_snake_case": _python_files_snake_case,
     "data_paths_use_layer_names": _data_paths_use_layer_names,
     "has_common_folders": _has_common_folders,
+    "no_pii_in_source_files": _no_pii_in_source_files,
 }
 
 # Actionable improvement suggestions for each failed check (used in Suggested Improvements section).
@@ -282,6 +326,7 @@ CHECK_ID_TO_IMPROVEMENT: dict[str, str] = {
     "python_files_snake_case": "Rename Python files to snake_case to follow Python naming standards (e.g. process_data.py not ProcessData.py).",
     "data_paths_use_layer_names": "Use medallion layer names in data paths (e.g. data/raw, data/bronze, data/silver, data/gold).",
     "has_common_folders": "Adopt common project folders (e.g. src, data, config, tests).",
+    "no_pii_in_source_files": "Remove emails or other PII from source files; use config or environment variables for sensitive data.",
 }
 
 
@@ -417,16 +462,23 @@ def build_deterministic_evaluation_report(
         lines.append(f"- {check_id}: {'Pass' if ok else 'Fail'}")
     lines.append("")
 
+    lines.append("## Sensitive data (PII)")
+    lines.append("")
+    for check_id, ok in dim_checks.get("sensitive_data_exposure_score", []):
+        lines.append(f"- {check_id}: {'Pass' if ok else 'Fail'}")
+    lines.append("")
+
     lines.append("## Cloud ingestion & security")
     lines.append("")
     lines.append(f"- cloud_ingestion score: {scores.get('cloud_ingestion', 0)}/100 (100 if Azure/cloud ingestion detected, else 0).")
     lines.append(f"- security_practices_score: {scores.get('security_practices_score', 0)}/100 (from credential and .gitignore checks).")
+    lines.append(f"- sensitive_data_exposure_score: {scores.get('sensitive_data_exposure_score', 0)}/100 (no email/phone PII in source files).")
     lines.append("")
 
     lines.append("## Score justification (presence-based)")
     lines.append("")
     lines.append("Each dimension score = 100 × (sum of weights for passed checks) / (sum of weights for that dimension).")
-    for dim in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "naming_conventions_score"]:
+    for dim in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "naming_conventions_score", "sensitive_data_exposure_score"]:
         sc = scores.get(dim, 0)
         lines.append(f"- {dim}: {sc}/100")
     lines.append("")
@@ -438,6 +490,8 @@ def build_deterministic_evaluation_report(
         suggestions.append("Consider adding cloud ingestion (e.g. Azure Blob) for production-style pipelines.")
     if (scores.get("security_practices_score", 100) or 100) < 50:
         suggestions.append("Move hardcoded credentials to environment variables and ensure .env is in .gitignore.")
+    if (scores.get("sensitive_data_exposure_score", 100) or 100) < 100:
+        suggestions.append("Remove emails or other PII from source files; use config or environment variables for sensitive data.")
     if suggestions:
         lines.append("")
         lines.append("## Suggested Improvements")
@@ -488,6 +542,7 @@ def build_deterministic_evaluation_report_compact(
         ("readme_clarity", "Readme"),
         ("code_quality", "Code quality"),
         ("naming_conventions_score", "Naming"),
+        ("sensitive_data_exposure_score", "PII"),
     ]
     for dim_key, title in section_titles:
         checks = dim_checks.get(dim_key, [])
@@ -496,7 +551,7 @@ def build_deterministic_evaluation_report_compact(
         if not add(line):
             break
     add("")
-    add(f"Cloud: {scores.get('cloud_ingestion', 0)}/100. Security: {scores.get('security_practices_score', 0)}/100.")
+    add(f"Cloud: {scores.get('cloud_ingestion', 0)}/100. Security: {scores.get('security_practices_score', 0)}/100. PII: {scores.get('sensitive_data_exposure_score', 0)}/100.")
     add("Scores from presence checks only; no subjective scoring.")
 
     # Suggested Improvements (from failed checks and low scores)
@@ -505,6 +560,8 @@ def build_deterministic_evaluation_report_compact(
         suggestions.append("Consider adding cloud ingestion (e.g. Azure Blob) for production-style pipelines.")
     if (scores.get("security_practices_score", 100) or 100) < 50:
         suggestions.append("Move hardcoded credentials to environment variables and ensure .env is in .gitignore.")
+    if (scores.get("sensitive_data_exposure_score", 100) or 100) < 100:
+        suggestions.append("Remove emails or other PII from source files; use config or environment variables for sensitive data.")
     if suggestions:
         add("")
         add("## Suggested Improvements")

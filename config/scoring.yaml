@@ -4,12 +4,13 @@ weights:
   gold_generated: 10
   medallion_architecture: 14
   sla_logic: 14
-  pipeline_organization: 10
+  pipeline_organization: 5
   readme_clarity: 9
   code_quality: 8
   cloud_ingestion: 8
   naming_conventions_score: 7
   security_practices_score: 6
+  sensitive_data_exposure_score: 5
 
 normalization:
   max_score: 100

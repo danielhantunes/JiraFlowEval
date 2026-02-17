@@ -21,6 +21,7 @@ RESULT_COLUMNS = [
     "cloud_ingestion",
     "naming_conventions_score",
     "security_practices_score",
+    "sensitive_data_exposure_score",
     "final_score",
     "summary",
     "evaluation_report",

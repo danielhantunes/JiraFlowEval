@@ -50,6 +50,45 @@ def test_compute_dimension_scores_partial(tmp_path):
     assert 0 <= scores["medallion_architecture"] <= 100
 
 
+def test_python_files_snake_case_allows_init(tmp_path):
+    """__init__.py and __main__.py are allowed; only user modules must be snake_case."""
+    (tmp_path / "src").mkdir(parents=True)
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "main.py").write_text("", encoding="utf-8")
+    result = run_checks(tmp_path)
+    assert result["python_files_snake_case"] is True
+    (tmp_path / "src" / "ProcessData.py").write_text("", encoding="utf-8")
+    result = run_checks(tmp_path)
+    assert result["python_files_snake_case"] is False
+
+
+def test_no_pii_in_source_files_pass(tmp_path):
+    """no_pii_in_source_files passes when no email or phone in .py under src/, ingestion/, or root."""
+    (tmp_path / "src").mkdir(parents=True)
+    (tmp_path / "src" / "main.py").write_text("x = 1  # no pii", encoding="utf-8")
+    result = run_checks(tmp_path)
+    assert result["no_pii_in_source_files"] is True
+    scores = compute_dimension_scores(result)
+    assert scores["sensitive_data_exposure_score"] == 100
+
+
+def test_no_pii_in_source_files_fail_email(tmp_path):
+    """no_pii_in_source_files fails when a source file contains an email."""
+    (tmp_path / "src").mkdir(parents=True)
+    (tmp_path / "src" / "main.py").write_text("contact = 'user@example.com'", encoding="utf-8")
+    result = run_checks(tmp_path)
+    assert result["no_pii_in_source_files"] is False
+    scores = compute_dimension_scores(result)
+    assert scores["sensitive_data_exposure_score"] == 0
+
+
+def test_no_pii_in_source_files_fail_phone(tmp_path):
+    """no_pii_in_source_files fails when a source file contains a phone number."""
+    (tmp_path / "main.py").write_text("phone = '(123) 456-7890'", encoding="utf-8")
+    result = run_checks(tmp_path)
+    assert result["no_pii_in_source_files"] is False
+
+
 def test_gold_has_parquet_check(tmp_path):
     """gold_has_parquet passes when data/gold contains .parquet file; contributes to sla_logic."""
     (tmp_path / "data" / "gold").mkdir(parents=True)
@@ -85,6 +124,7 @@ def test_build_deterministic_evaluation_report():
         "naming_conventions_score": 0,
         "cloud_ingestion": 0,
         "security_practices_score": 50,
+        "sensitive_data_exposure_score": 0,
         "pipeline_runs": False,
         "gold_generated": False,
     }
@@ -93,6 +133,7 @@ def test_build_deterministic_evaluation_report():
     assert "25/100" in report
     assert "Presence-based checks" in report
     assert "## Architecture (medallion layers)" in report
+    assert "## Sensitive data (PII)" in report
     assert "## Score justification (presence-based)" in report
     assert "No subjective scoring" in report
     assert "## Suggested Improvements" in report
@@ -127,6 +168,7 @@ def test_build_deterministic_evaluation_report_compact_under_limit():
         "naming_conventions_score": 75,
         "cloud_ingestion": 0,
         "security_practices_score": 70,
+        "sensitive_data_exposure_score": 100,
         "pipeline_runs": True,
         "gold_generated": True,
     }

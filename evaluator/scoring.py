@@ -18,6 +18,7 @@ DEFAULT_WEIGHTS = {
     "cloud_ingestion": 2,
     "naming_conventions_score": 2,
     "security_practices_score": 2,
+    "sensitive_data_exposure_score": 2,
 }
 DEFAULT_MAX_SCORE = 100
 DEFAULT_SUMMARY_MAX_CHARS = 1800

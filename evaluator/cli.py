@@ -129,6 +129,7 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
         "cloud_ingestion": 0,
         "naming_conventions_score": 0,
         "security_practices_score": 0,
+        "sensitive_data_exposure_score": 0,
         "summary": "",
     }
 
@@ -201,7 +202,7 @@ def _metrics_to_result(metrics: dict, weights: dict, max_score: float) -> dict:
             out[k] = final
         elif k in BOOL_METRICS:
             out[k] = 100 if metrics.get(k) else 0
-        elif k in ("medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "cloud_ingestion", "naming_conventions_score", "security_practices_score"):
+        elif k in ("medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "cloud_ingestion", "naming_conventions_score", "security_practices_score", "sensitive_data_exposure_score"):
             # Dimensions are stored as 0-100 (deterministic from checks or security scorer)
             out[k] = round(metrics.get(k, 0))
         elif k == "summary":

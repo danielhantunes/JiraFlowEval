@@ -196,7 +196,7 @@ Write the evaluation summary (with a short Docker validation section) and then a
 
 def _format_scores_for_prompt(scores: dict[str, Any]) -> str:
     lines = []
-    for k in ["final_score", "medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "naming_conventions_score", "cloud_ingestion", "security_practices_score"]:
+    for k in ["final_score", "medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "naming_conventions_score", "cloud_ingestion", "security_practices_score", "sensitive_data_exposure_score"]:
         if k in scores:
             lines.append(f"- {k}: {scores[k]}")
     lines.append(f"- pipeline_runs: {'Yes' if scores.get('pipeline_runs') in (True, 100) else 'No'}")
