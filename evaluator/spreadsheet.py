@@ -19,8 +19,11 @@ RESULT_COLUMNS = [
     "readme_clarity",
     "code_quality",
     "cloud_ingestion",
+    "naming_conventions_score",
+    "security_practices_score",
     "final_score",
     "summary",
+    "evaluation_report",
 ]
 
 log = get_logger(__name__)

@@ -10,9 +10,9 @@ load_dotenv()
 
 from .context_collector import collect_context
 from .logger import get_logger, log_repo_error
-from .pipeline_runner import run_pipeline
+from .pipeline_runner import run_pipeline, _repo_uses_azure_ingestion
 from .repo_cloner import clone_repo
-from .scoring import load_config, compute_final_score
+from .scoring import load_config, compute_final_score, metric_value, BOOL_METRICS, DEFAULT_MAX_SCORE
 from .spreadsheet import (
     load_input,
     get_repo_rows,
@@ -21,7 +21,14 @@ from .spreadsheet import (
     RESULT_COLUMNS,
     REPO_URL_COL,
 )
-from .llm_evaluator import evaluate_with_llm, get_run_command_from_readme
+from .detectors import (
+    run_checks,
+    compute_dimension_scores,
+    build_deterministic_summary,
+    build_deterministic_evaluation_report_compact,
+)
+from .llm_evaluator import get_run_command_from_readme, generate_evaluation_summary_llm, format_docker_results_for_summary
+from .security_scorer import compute_security_score
 from .utils import ensure_dirs, get_output_dir
 
 log = get_logger(__name__)
@@ -50,13 +57,20 @@ def _run_evaluate(file: Path, output_name: str) -> None:
 
     config = load_config()
     weights = config["weights"]
-    max_score = config["normalization"].get("max_score", 10)
+    max_score = config["normalization"].get("max_score", DEFAULT_MAX_SCORE)
+    summary_max_chars = config["normalization"].get("summary_max_chars", 1800)
+    env_limit = os.environ.get("EVALUATION_SUMMARY_MAX_CHARS")
+    if env_limit is not None:
+        try:
+            summary_max_chars = max(100, int(env_limit))
+        except ValueError:
+            pass
 
     result_rows = []
     for i, row in enumerate(rows):
         url = row.get(REPO_URL_COL, "")
         log.info("Evaluating %s (%s/%s)", url, i + 1, len(rows))
-        result = _evaluate_one(url, row, weights, max_score)
+        result = _evaluate_one(url, row, weights, max_score, summary_max_chars)
         result_rows.append(result)
 
     out_path = get_output_dir() / output_name
@@ -89,7 +103,7 @@ def evaluate(
     _run_evaluate(file, output_name)
 
 
-def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: float) -> dict:
+def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: float, summary_max_chars: int = 1800) -> dict:
     """Run clone -> pipeline -> context -> LLM -> score; merge into one result row."""
     # Start with original row; fill result columns from pipeline + LLM + scoring
     metrics = {
@@ -101,6 +115,8 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
         "readme_clarity": 0,
         "code_quality": 0,
         "cloud_ingestion": 0,
+        "naming_conventions_score": 0,
+        "security_practices_score": 0,
         "summary": "",
     }
 
@@ -130,25 +146,57 @@ def _evaluate_one(repo_url: str, original_row: dict, weights: dict, max_score: f
     metrics["gold_generated"] = run_result.get("gold_generated", False)
 
     context = collect_context(repo_path, run_result)
-    llm_result = evaluate_with_llm(context)
-    for k in ["medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "cloud_ingestion"]:
-        metrics[k] = llm_result.get(k, 0)
-    metrics["summary"] = llm_result.get("summary", "")
-
-    # When pipeline failed, prepend the error so the Excel justifies the score.
+    # Deterministic presence-based scoring from boolean checks
+    check_results = run_checks(repo_path)
+    dimension_scores = compute_dimension_scores(check_results)
+    for k, v in dimension_scores.items():
+        metrics[k] = v
+    metrics["cloud_ingestion"] = 100 if _repo_uses_azure_ingestion(repo_path) else 0
+    metrics["security_practices_score"] = compute_security_score(repo_path)
+    metrics["summary"] = build_deterministic_summary(
+        check_results,
+        dimension_scores,
+        metrics["pipeline_runs"],
+        metrics["gold_generated"],
+        run_result.get("error"),
+    )
     if not metrics["pipeline_runs"] and run_result.get("error"):
         err = (run_result.get("error") or "").strip()[:300]
         if err:
             metrics["summary"] = f"Pipeline error: {err}. " + (metrics["summary"] or "")
 
-    return build_result_row(original_row, _metrics_to_result(metrics, weights, max_score))
+    result = _metrics_to_result(metrics, weights, max_score)
+    docker_results_text = format_docker_results_for_summary(run_result)
+    llm_summary = generate_evaluation_summary_llm(
+        check_results, result, max_chars=summary_max_chars, docker_results=docker_results_text
+    )
+    if llm_summary is not None:
+        result["evaluation_report"] = llm_summary
+    else:
+        result["evaluation_report"] = build_deterministic_evaluation_report_compact(
+            check_results, result, max_chars=summary_max_chars
+        )
+    return build_result_row(original_row, result)
 
 
 def _metrics_to_result(metrics: dict, weights: dict, max_score: float) -> dict:
-    """Compute final_score and build result dict with all required columns."""
+    """Compute final_score and build result dict; all scores in 0-100 range."""
     final = compute_final_score(metrics, weights, max_score)
-    out = {k: metrics.get(k) for k in RESULT_COLUMNS if k != "final_score"}
-    out["final_score"] = final
+    out = {}
+    for k in RESULT_COLUMNS:
+        if k == "final_score":
+            out[k] = final
+        elif k in BOOL_METRICS:
+            out[k] = 100 if metrics.get(k) else 0
+        elif k in ("medallion_architecture", "sla_logic", "pipeline_organization", "readme_clarity", "code_quality", "cloud_ingestion", "naming_conventions_score", "security_practices_score"):
+            # Dimensions are stored as 0-100 (deterministic from checks or security scorer)
+            out[k] = round(metrics.get(k, 0))
+        elif k == "summary":
+            out[k] = metrics.get(k, "")
+        elif k == "evaluation_report":
+            out[k] = ""  # filled in after this call via build_deterministic_evaluation_report
+        else:
+            out[k] = metrics.get(k)
     return out
 
 

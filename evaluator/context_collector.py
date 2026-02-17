@@ -25,6 +25,63 @@ def _read_limited(path: Path) -> str:
         return f"[read error: {e}]"
 
 
+def _naming_audit(repo_path: Path) -> str:
+    """Collect file and folder names for naming-conventions evaluation."""
+    lines = []
+    # Top-level and one level of folders
+    try:
+        for p in sorted(repo_path.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+            if p.name.startswith(".") and p.name != ".git":
+                continue
+            if p.name in ("venv", ".venv", "__pycache__", "node_modules"):
+                continue
+            if p.is_dir():
+                lines.append(f"folder: {p.name}/")
+                for q in sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
+                    if q.name.startswith(".") or q.name in ("__pycache__",):
+                        continue
+                    lines.append(f"  {q.name}" + ("/" if q.is_dir() else ""))
+            else:
+                lines.append(f"file: {p.name}")
+    except PermissionError:
+        lines.append("[permission denied]")
+    # Python files under common dirs
+    py_files = []
+    for base in ["src", "ingestion", "tests", "."]:
+        d = repo_path / base if base != "." else repo_path
+        if not d.is_dir() and base != ".":
+            continue
+        for f in d.rglob("*.py"):
+            try:
+                rel = f.relative_to(repo_path)
+                s = str(rel).replace("\\", "/")
+                if "venv" in s or "__pycache__" in s or ".venv" in s:
+                    continue
+                py_files.append(s)
+            except ValueError:
+                pass
+    if py_files:
+        lines.append("\nPython files:")
+        for x in sorted(set(py_files))[:80]:
+            lines.append(f"  {x}")
+    # Data files under data/
+    data_dir = repo_path / "data"
+    if data_dir.is_dir():
+        data_files = []
+        for f in data_dir.rglob("*"):
+            if f.is_file():
+                try:
+                    rel = f.relative_to(repo_path)
+                    data_files.append(str(rel).replace("\\", "/"))
+                except ValueError:
+                    pass
+        if data_files:
+            lines.append("\nData files:")
+            for x in sorted(data_files)[:50]:
+                lines.append(f"  {x}")
+    return "\n".join(lines) if lines else "(none)"
+
+
 def _tree(dir_path: Path, prefix: str = "", depth: int = 0, max_depth: int = 3) -> str:
     if depth >= max_depth:
         return ""
@@ -57,6 +114,7 @@ def collect_context(repo_path: Path, execution_result: dict) -> dict[str, Any]:
     context: dict[str, Any] = {
         "readme": "",
         "project_tree": "",
+        "naming_audit": "",
         "sla_calculation": "",
         "main_pipeline": "",
         "execution_summary": {},
@@ -67,6 +125,7 @@ def collect_context(repo_path: Path, execution_result: dict) -> dict[str, Any]:
         context["readme"] = _read_limited(readme)
 
     context["project_tree"] = _tree(repo_path, max_depth=TREE_DEPTH)
+    context["naming_audit"] = _naming_audit(repo_path)
 
     for sla_rel in ["sla_calculation.py", "src/sla/sla_calculation.py"]:
         sla = repo_path / sla_rel
@@ -99,6 +158,8 @@ def context_to_string(context: dict[str, Any]) -> str:
         context.get("readme", "") or "(none)",
         "\n=== Project tree (depth 3) ===",
         context.get("project_tree", "") or "(none)",
+        "\n=== Naming audit (folders, Python files, data files) ===",
+        context.get("naming_audit", "") or "(none)",
         "\n=== sla_calculation.py ===",
         context.get("sla_calculation", "") or "(not found)",
         "\n=== Main pipeline file ===",

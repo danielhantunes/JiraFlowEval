@@ -43,21 +43,10 @@ def test_evaluate_integration_mocked(
             "return_code": 0,
         }
 
-    def fake_llm(context):
-        return {
-            "medallion_architecture": 3,
-            "sla_logic": 3,
-            "pipeline_organization": 3,
-            "readme_clarity": 4,
-            "code_quality": 3,
-            "cloud_ingestion": 3,
-            "summary": "Test summary.",
-        }
-
     with (
         patch("evaluator.cli.clone_repo", side_effect=fake_clone),
         patch("evaluator.cli.run_pipeline", side_effect=fake_run_pipeline),
-        patch("evaluator.cli.evaluate_with_llm", side_effect=fake_llm),
+        patch("evaluator.cli.generate_evaluation_summary_llm", return_value=None),  # use deterministic compact report
     ):
         evaluate(file=sample_excel_path, output_name=output_name)
 
@@ -68,3 +57,12 @@ def test_evaluate_integration_mocked(
     assert REPO_URL_COL in df.columns
     assert len(df) == 2
     assert df["final_score"].notna().all()
+    assert (df["final_score"] >= 0).all() and (df["final_score"] <= 100).all(), "final_score must be 0-100"
+    # Repo has no cloud ingestion -> cloud_ingestion score must be 0
+    assert (df["cloud_ingestion"] == 0).all(), "cloud_ingestion must be 0 when repo has no Azure ingestion"
+    # Evaluation report present, populated, and within Excel-safe limit (no truncation; limit enforced at generation)
+    assert "evaluation_report" in df.columns
+    assert df["evaluation_report"].notna().all()
+    assert (df["evaluation_report"].str.len() > 0).all()
+    assert (df["evaluation_report"].str.len() <= 1800).all(), "evaluation_report must be <= 1800 chars (config default)"
+    assert "checks passed" in df["evaluation_report"].iloc[0].lower() or "final score" in df["evaluation_report"].iloc[0].lower()

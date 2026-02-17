@@ -8,10 +8,11 @@ from evaluator.context_collector import collect_context, context_to_string
 
 
 def test_context_to_string_includes_sections():
-    """context_to_string includes README, tree, sla, pipeline, execution."""
+    """context_to_string includes README, tree, naming audit, sla, pipeline, execution."""
     context = {
         "readme": "Hello",
         "project_tree": "├── main.py",
+        "naming_audit": "folder: src/",
         "sla_calculation": "def sla(): ...",
         "main_pipeline": "print(1)",
         "execution_summary": {"pipeline_runs": True},
@@ -19,6 +20,7 @@ def test_context_to_string_includes_sections():
     s = context_to_string(context)
     assert "README" in s
     assert "Project tree" in s
+    assert "Naming audit" in s
     assert "sla_calculation" in s
     assert "Main pipeline" in s
     assert "Execution summary" in s

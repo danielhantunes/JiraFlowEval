@@ -16,10 +16,15 @@ DEFAULT_WEIGHTS = {
     "readme_clarity": 2,
     "code_quality": 2,
     "cloud_ingestion": 2,
+    "naming_conventions_score": 2,
+    "security_practices_score": 2,
 }
-DEFAULT_MAX_SCORE = 10
+DEFAULT_MAX_SCORE = 100
+DEFAULT_SUMMARY_MAX_CHARS = 1800
+# Per-dimension scores from LLM are 0-5; we scale to 0-100 for output
+SCORE_SCALE_0_5_TO_100 = 20  # 5 * 20 = 100
 
-# All metrics are 0-5 scale; booleans mapped to 0 or 5
+# All metrics are 0-5 scale internally; booleans mapped to 0 or 5
 BOOL_METRICS = ("pipeline_runs", "gold_generated")
 
 
@@ -27,7 +32,10 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     """Load scoring.yaml; return weights and normalization. Use defaults if missing."""
     path = config_path or get_config_path()
     if not path.exists():
-        return {"weights": dict(DEFAULT_WEIGHTS), "normalization": {"max_score": DEFAULT_MAX_SCORE}}
+        return {
+            "weights": dict(DEFAULT_WEIGHTS),
+            "normalization": {"max_score": DEFAULT_MAX_SCORE, "summary_max_chars": DEFAULT_SUMMARY_MAX_CHARS},
+        }
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
@@ -35,14 +43,23 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
         norm = data.get("normalization") or {}
         return {
             "weights": {**DEFAULT_WEIGHTS, **weights},
-            "normalization": {"max_score": norm.get("max_score", DEFAULT_MAX_SCORE)},
+            "normalization": {
+                "max_score": norm.get("max_score", DEFAULT_MAX_SCORE),
+                "summary_max_chars": norm.get("summary_max_chars", DEFAULT_SUMMARY_MAX_CHARS),
+            },
         }
     except Exception:
-        return {"weights": dict(DEFAULT_WEIGHTS), "normalization": {"max_score": DEFAULT_MAX_SCORE}}
+        return {
+            "weights": dict(DEFAULT_WEIGHTS),
+            "normalization": {"max_score": DEFAULT_MAX_SCORE, "summary_max_chars": DEFAULT_SUMMARY_MAX_CHARS},
+        }
 
 
 def metric_value(raw: Any, key: str) -> float:
-    """Convert raw value to 0-5 scale. Booleans -> 0 or 5."""
+    """
+    Convert raw value to 0-5 scale for weighted average.
+    Booleans -> 0 or 5. Dimension scores may be 0-100 (stored directly); >5 treated as 0-100 and scaled to 0-5.
+    """
     if key in BOOL_METRICS:
         if isinstance(raw, bool):
             return 5.0 if raw else 0.0
@@ -50,18 +67,21 @@ def metric_value(raw: Any, key: str) -> float:
             return 5.0
         return 0.0
     if isinstance(raw, (int, float)):
-        return max(0.0, min(5.0, float(raw)))
+        v = float(raw)
+        if v > 5:
+            return max(0.0, min(5.0, v / 20.0))
+        return max(0.0, min(5.0, v))
     return 0.0
 
 
 def compute_final_score(
     metrics: dict[str, Any],
     weights: dict[str, float],
-    max_score: float = 10.0,
+    max_score: float = 100.0,
 ) -> float:
     """
     final_score = sum(metric * weight) / sum(weights), then normalize to max_score.
-    Metrics are 0-5; result is scaled so max is max_score.
+    Metrics are 0-5 internally; result is in [0, max_score] (default 0-100).
     """
     weighted_sum = 0.0
     total_weight = 0.0

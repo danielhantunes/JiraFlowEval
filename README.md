@@ -1,6 +1,6 @@
 # Repository Evaluator (JiraFlowEval)
 
-**What it does:** Takes an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and uses an LLM to score it (architecture, SLA logic, code quality, etc.). **What you get:** One Excel file with original columns plus scores and a short summary per repo.
+**What it does:** Takes an Excel list of repository URLs, clones each repo, runs its pipeline in Docker, and evaluates it using **deterministic presence-based checks** (boolean best-practice detectors + fixed weights). **What you get:** One Excel file with original columns plus scores and a short summary per repo. Two repos with the same structure always receive the same scores.
 
 🚧 *Under active development.*
 
@@ -16,7 +16,7 @@ Before you start, ensure you have:
 |-------------|---------|
 | **Docker** | Runs the evaluator and every candidate repo's pipeline in containers (mandatory; no local fallback). |
 | **Git** | Used to clone candidate repositories. |
-| **OpenAI API key** | Required for LLM scoring (stored in `.env`). |
+| **OpenAI API key** | Optional; used only for the detailed evaluation report and README run-command extraction. **Scores are computed without the LLM** (deterministic checks). |
 
 ---
 
@@ -33,7 +33,7 @@ cd JiraFlowEval
 
 ### Step 2: Create and configure `.env`
 
-Copy the template and set your OpenAI API key (required for LLM scoring):
+Copy the template. Set `OPENAI_API_KEY` only if you want the detailed narrative report and README run-command extraction (scoring works without it):
 
 ```bash
 cp .env.example .env
@@ -76,8 +76,9 @@ This uses the default input `input/repos.xlsx` and writes **`output/repos_evalua
 
 - Clone the repo into `temp_repos/`,
 - Run its pipeline inside a Docker container,
-- Collect context and call the LLM for scores,
-- Append scores and summary to the row.
+- Run deterministic presence-based checks (medallion layers, SLA, pipeline org, readme, code quality, naming, security),
+- Compute dimension scores from check results using fixed weights,
+- Append scores and a short deterministic summary to the row (and optionally a detailed narrative report if `OPENAI_API_KEY` is set).
 
 No manual steps per repo; one command processes the whole list.
 
@@ -140,9 +141,10 @@ These choices keep the project production-like, reproducible, and easy to run wi
 | **Docker mandatory for pipeline runs** | Every candidate repo runs inside a `python:3.12-slim` container. This matches a production-style environment, avoids “works on my machine” (same Python and OS everywhere), and isolates untrusted code. There is no local/venv fallback. |
 | **Tests run in Docker in CI** | The test suite runs inside the same image that is used for evaluation. So we validate the exact runtime (dependencies, paths). CI does not run tests on the host. |
 | **Coverage threshold (55%)** | CI fails if coverage of the `evaluator` package drops below 55%. This keeps a minimum quality bar and encourages tests when adding or changing code. |
-| **Retries for clone and LLM** | Git clone and OpenAI API calls are retried a few times with a short delay. Transient network or rate-limit errors are less likely to fail the whole run. |
+| **Retries for clone and report API** | Git clone and (optional) OpenAI API calls for the detailed report are retried a few times. Transient errors are less likely to fail the whole run. |
 | **Config-driven scoring** | Weights and max score live in `config/scoring.yaml`, not in code. You can tune scoring without changing the evaluator. |
-| **Fully automated evaluation** | One command processes every repo in the input file: clone → run pipeline in Docker → LLM → write row. No manual steps per repository. |
+| **Deterministic evaluation** | Scores are computed from boolean presence checks (e.g. has_raw_layer, has_sla_calculation_file) and fixed weights. Same repo structure → same scores. No subjective LLM scoring for dimensions. |
+| **Fully automated evaluation** | One command processes every repo in the input file: clone → run pipeline in Docker → run checks → write row. No manual steps per repository. |
 | **Workflow on demand** | The workflow runs only when you trigger it (Actions → Run workflow), not on push. The evaluate job runs every time you trigger the workflow; set the `OPENAI_API_KEY` secret (and any Azure secrets/variables) for real LLM scoring and pipeline auth. |
 
 ---
@@ -160,9 +162,10 @@ All original columns plus:
 
 - **pipeline_runs** – pipeline executed successfully (True/False)
 - **gold_generated** – `data/gold` exists and contains at least one CSV
-- **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality**, **cloud_ingestion** – LLM scores 0–5 (cloud_ingestion: Azure Service Principal / cloud ingestion = 5, local JSON only = 1–2)
-- **final_score** – weighted score (configurable max, default 10)
+- **medallion_architecture**, **sla_logic**, **pipeline_organization**, **readme_clarity**, **code_quality**, **cloud_ingestion** – dimension scores 0–100 (cloud_ingestion is 0 when the repo has no cloud/Azure ingestion; otherwise LLM-scored)
+- **final_score** – weighted score 0–100 (configurable max in config, default 100)
 - **summary** – short technical summary from LLM; when clone or pipeline fails, explains the error so the score is justified (e.g. "Clone failed...", "Pipeline error: ...")
+- **evaluation_report** – detailed technical evaluation report (senior data engineer code review): architecture decisions, data format choices, medallion structure, best practices, and justification for each score. Structured with sections (Executive summary, Architecture, Data formats, Medallion structure, Best practices, Score justification).
 
 ## Config
 

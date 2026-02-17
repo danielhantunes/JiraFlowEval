@@ -1,6 +1,7 @@
 """Run pipeline in repo: Docker only (production-like), install deps, run entrypoint; verify data/gold has CSV."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,7 @@ log = get_logger(__name__)
 PIPELINE_TIMEOUT = 180
 MAX_FILE_SIZE = 4000
 DOCKER_IMAGE = "python:3.12-slim"
+DEFAULT_RAW_INPUT_FILENAME = "tickets_raw.json"
 
 # Env vars to pass into the pipeline container. Main set: Azure credentials + blob config (see .env.example).
 # Optional: RAW_INPUT_FILENAME. Only vars that are set and non-empty are passed.
@@ -34,6 +36,92 @@ ROOT_ENTRYPOINTS = ["main.py", "run_pipeline.py"]
 # Module entry points (run as module: python -m src.main)
 MODULE_ENTRYPOINTS = ["src/main.py", "src/run_pipeline.py"]
 GOLD_DIR = Path("data/gold")
+
+# Patterns to detect Azure/cloud ingestion in repo code
+AZURE_INGESTION_MARKERS = (
+    "azure",
+    "AZURE_ACCOUNT_URL",
+    "BlobServiceClient",
+    "DefaultAzureCredential",
+    "azure-storage-blob",
+)
+
+
+def _repo_uses_azure_ingestion(repo_path: Path) -> bool:
+    """Return True if the repo appears to use Azure/cloud ingestion (so raw file check is skipped)."""
+    search_dirs = [
+        repo_path / "src" / "ingestion",
+        repo_path / "ingestion",
+        repo_path / "src",
+    ]
+    search_files = [repo_path / ".env.example", repo_path / "config.py", repo_path / "src" / "utils" / "config.py"]
+    paths_to_check = []
+    for d in search_dirs:
+        if d.is_dir():
+            paths_to_check.extend(d.rglob("*.py"))
+    for f in search_files:
+        if f.is_file():
+            paths_to_check.append(f)
+    for path in paths_to_check:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+        except Exception:
+            continue
+        for marker in AZURE_INGESTION_MARKERS:
+            if marker.lower() in text:
+                return True
+    return False
+
+
+def _get_repo_raw_input_filename(repo_path: Path) -> str:
+    """Resolve expected raw input filename: .env.example, then Python getenv default, then evaluator env, then default."""
+    # .env.example: RAW_INPUT_FILENAME=...
+    for env_name in [".env.example", ".env.sample"]:
+        p = repo_path / env_name
+        if p.is_file():
+            try:
+                for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = line.strip()
+                    if line.startswith("RAW_INPUT_FILENAME="):
+                        value = line.split("=", 1)[1].strip().strip("'\"").split("#")[0].strip()
+                        if value:
+                            return value
+            except Exception:
+                pass
+    # Python: getenv("RAW_INPUT_FILENAME", "something")
+    getenv_re = re.compile(r'getenv\s*\(\s*["\']RAW_INPUT_FILENAME["\']\s*,\s*["\']([^"\']+)["\']\s*\)', re.IGNORECASE)
+    for base in (repo_path / "src", repo_path / "ingestion", repo_path):
+        if not base.is_dir():
+            continue
+        for f in base.rglob("*.py"):
+            try:
+                m = getenv_re.search(f.read_text(encoding="utf-8", errors="replace"))
+                if m:
+                    return m.group(1).strip()
+            except Exception:
+                pass
+    # Evaluator env override
+    ev = os.environ.get("RAW_INPUT_FILENAME", "").strip()
+    if ev:
+        return ev
+    return DEFAULT_RAW_INPUT_FILENAME
+
+
+def _require_raw_input_file_exists(repo_path: Path) -> Optional[str]:
+    """
+    If repo does not use Azure ingestion, require that the raw input file exists at repo root.
+    Returns None if ok, or an error message string if the file is missing.
+    """
+    if _repo_uses_azure_ingestion(repo_path):
+        return None
+    filename = _get_repo_raw_input_filename(repo_path)
+    raw_path = repo_path / filename
+    if raw_path.is_file():
+        return None
+    return (
+        f"Repo uses local file ingestion but required input file is missing: {filename} "
+        f"(expected at repo root). Add the file or use Azure/cloud ingestion."
+    )
 
 
 def _find_entrypoint(repo_path: Path) -> Optional[tuple[Path, bool]]:
@@ -146,6 +234,12 @@ def run_pipeline(
         cmd_str = _entrypoint_to_cmd_string(entry_path, repo_path, is_module)
     if not cmd_str:
         result["error"] = "No main.py, run_pipeline.py, or src/main.py found (and no run command from README)"
+        return result
+
+    raw_check_error = _require_raw_input_file_exists(repo_path)
+    if raw_check_error:
+        log.warning("Skipping pipeline run: %s", raw_check_error)
+        result["error"] = raw_check_error
         return result
 
     code, out, err = _run_in_docker(repo_path, cmd_str)
