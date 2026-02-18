@@ -32,7 +32,7 @@
 |-------------|---------|
 | **Docker** | Runs the evaluator and each candidate repo’s pipeline in containers. **Required**; there is no local fallback. |
 | **Git** | Used to clone candidate repositories. |
-| **OpenAI API key** | **Optional.** Only used for the detailed narrative **evaluation report** and for inferring the run command from README (when requested via `USE_README_RUN_COMMAND` or as **fallback** when auto-discovery finds no entrypoint). **All scores are computed without the LLM** (deterministic checks). |
+| **OpenAI API key** | **Required for LLM-generated output.** When set, the evaluator uses the LLM (OpenAI) for the detailed narrative **evaluation report** and for inferring the run command from the README (when requested via `USE_README_RUN_COMMAND` or as **fallback** when auto-discovery finds no entrypoint). If not set, the evaluation report is a deterministic compact report and run-command discovery is non-LLM only. **Numeric scores are always computed without the LLM** (deterministic checks). |
 
 ---
 
@@ -46,7 +46,7 @@ cd JiraFlowEval
 cp .env.example .env
 ```
 
-Edit `.env` and set **`OPENAI_API_KEY`** only if you want the detailed LLM-generated evaluation report. Scoring works without it.
+Edit `.env` and set **`OPENAI_API_KEY`** so the evaluator uses the LLM for the narrative evaluation report and (when needed) for run-command inference. Without it, you still get numeric scores and a deterministic compact report.
 
 *Windows:* `copy .env.example .env` then edit in your editor.
 
@@ -119,7 +119,7 @@ The output Excel contains all original columns plus:
 | `sensitive_data_exposure_score` | Score 0–100: no email/phone PII in (1) source files under `src/`, `ingestion/`, or root, and (2) non–gitignored JSON/CSV/Parquet in `data/raw`, `data/bronze`, `data/silver`, `data/gold`. |
 | `final_score` | Arithmetic mean of the score columns above (0–100). Same as the average of the column scores in the output. |
 | `summary` | Short **deterministic** technical summary (checks passed, dimension scores, pipeline status). |
-| `evaluation_report` | Detailed technical report including a **Suggested Improvements** section (actionable recommendations from detected issues only). **If `OPENAI_API_KEY` is set:** LLM-generated narrative. **Otherwise:** deterministic compact report (same content style, no API). Capped at 1800 characters. |
+| `evaluation_report` | Detailed technical report including a **Suggested Improvements** section (actionable recommendations from detected issues only). **When `OPENAI_API_KEY` is set:** the LLM is used to generate this narrative. **Otherwise:** a deterministic compact report is produced (same content style, no API). Capped at 1800 characters. |
 
 ---
 
@@ -139,7 +139,7 @@ Edit **`config/scoring.yaml`** to change max score and summary length. The **fin
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | If set, enables the detailed LLM-generated **evaluation report** and optional README run-command extraction. Scores are still deterministic. |
+| `OPENAI_API_KEY` | **Recommended.** When set, the evaluator uses the LLM for the **evaluation report** and for README run-command extraction (when needed). Required for full LLM-based evaluation output; without it, a deterministic report is used. Numeric scores are always deterministic. |
 | `USE_README_RUN_COMMAND` | Set to `1`, `true`, or `yes` to have the LLM infer the run command from each repo’s README instead of auto-detecting `main.py` / `run_pipeline.py`. When unset, the LLM is still used as a **fallback** when auto-discovery finds no entrypoint (requires `OPENAI_API_KEY`). |
 | `TEMP_REPOS_DIR` | Where to clone repos (default: `temp_repos/`). |
 | `OUTPUT_DIR` | Where to write results (default: `output/`). |
@@ -204,7 +204,7 @@ Use **Secrets** for credentials (masked in logs) and **Variables** for non-sensi
 | **Tests in Docker in CI** | Same image as evaluation; validates exact runtime and paths. |
 | **Coverage threshold (55%)** | CI fails if coverage drops; keeps a minimum quality bar. |
 | **Final score = average of columns** | The overall score is the arithmetic mean of the 11 score columns (pipeline_runs, gold_generated, medallion, SLA, etc.). Config in `scoring.yaml` sets max score and summary length only. |
-| **Deterministic scores** | Scores come from boolean presence checks and fixed weights. Same structure → same scores. LLM is used only for the narrative report and for run-command inference (opt-in or fallback when auto-discovery finds no entrypoint). |
+| **Deterministic scores** | Numeric scores come from boolean presence checks and fixed weights (same structure → same scores). The LLM is used for the narrative evaluation report and for run-command inference when `OPENAI_API_KEY` is set; otherwise a deterministic compact report is used. |
 | **Retries** | Git clone and optional OpenAI calls are retried to reduce impact of transient failures. |
 | **Workflow on demand** | Evaluation runs only when you trigger the workflow, not on every push. |
 
@@ -222,7 +222,7 @@ JiraFlowEval/
 │   ├── context_collector.py
 │   ├── detectors.py        # Deterministic presence checks
 │   ├── security_scorer.py  # Credential and .gitignore checks
-│   ├── llm_evaluator.py    # Optional LLM report
+│   ├── llm_evaluator.py    # LLM evaluation report (when OPENAI_API_KEY set)
 │   ├── scoring.py          # Weights and final score
 │   ├── logger.py
 │   └── utils.py
@@ -235,7 +235,7 @@ JiraFlowEval/
 ├── main.py                 # Entry: python main.py [evaluate ...]
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env.example            # Copy to .env, set OPENAI_API_KEY if needed
+├── .env.example            # Copy to .env, set OPENAI_API_KEY for LLM report
 ├── requirements.txt
 └── README.md
 ```
@@ -244,7 +244,7 @@ JiraFlowEval/
 
 ## Architecture & data flow
 
-**Flow:** Excel (repo URLs) → clone each repo into `temp_repos/` → run pipeline in Docker (`python:3.12-slim`) → run deterministic checks on repo files → compute dimension scores and final score (average of columns) → optionally call LLM for narrative report → write result row to output Excel. One row per repo; failures (clone or pipeline) still produce a row with zero scores and an error summary.
+**Flow:** Excel (repo URLs) → clone each repo into `temp_repos/` → run pipeline in Docker (`python:3.12-slim`) → run deterministic checks on repo files → compute dimension scores and final score (average of columns) → call LLM for narrative evaluation report when `OPENAI_API_KEY` is set, otherwise build deterministic compact report → write result row to output Excel. One row per repo; failures (clone or pipeline) still produce a row with zero scores and an error summary.
 
 ---
 
