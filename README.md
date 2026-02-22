@@ -4,8 +4,6 @@
 
 **What you get:** One Excel file with your original columns plus **scores** and a **summary** per repo. Same repo structure → same scores every time. No API key is required for scoring.
 
-🚧 *Under active development.*
-
 ---
 
 ## Table of contents
@@ -214,6 +212,9 @@ Use **Secrets** for credentials (masked in logs) and **Variables** for non-sensi
 
 ```
 JiraFlowEval/
+├── .github/
+│   └── workflows/
+│       └── main.yml        # Build, test & evaluate (manual trigger)
 ├── evaluator/
 │   ├── cli.py              # CLI and evaluate orchestration
 │   ├── spreadsheet.py      # Excel read/write
